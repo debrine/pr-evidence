@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { finish } from "./commands/finish.js";
+import { publish } from "./commands/publish.js";
 import { start } from "./commands/start.js";
 import { stopLatestRunApp } from "./commands/stop.js";
 import { CliError } from "./errors.js";
@@ -44,6 +45,8 @@ async function runCommand(argv: string[]): Promise<Record<string, unknown>> {
       }
       return { ...outcome };
     }
+    case "publish":
+      return publish(process.cwd());
     case "stop":
       return {
         stopped: await stopLatestRunApp(readRepoState(process.cwd()).repositoryKey),
