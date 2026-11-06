@@ -538,3 +538,25 @@ describe("app runner", () => {
     expect(result.json.stopped).toBe(false);
   });
 });
+
+describe("finish", () => {
+  it("stops the app it started, even when the results are rejected", async () => {
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (appPort) => `node ${sampleApp} ${appPort} ${pidFile}`,
+    );
+    const home = createHome();
+    await runCli(["start"], { cwd: repository.path, home });
+    const processId = appProcessId(pidFile);
+    const resultsPath = join(createTemporaryDirectory(), "results.json");
+    writeFileSync(resultsPath, "not json");
+
+    const finished = await runCli(["finish", "--results", resultsPath], {
+      cwd: repository.path,
+      home,
+    });
+
+    expect(finished.exitCode).toBe(2);
+    expect(isRunning(processId)).toBe(false);
+  });
+});
