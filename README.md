@@ -1,6 +1,6 @@
 # pr-evidence
 
-In development. This branch provides `start`, `stop`, and `finish` to manage a test run, record criterion results, and build a GIF from captured screenshots. Browser automation, `publish`, `setup`, and the skill are deferred.
+In development. This branch provides `start`, `stop`, and `finish` to manage a test run, record criterion results, and build a GIF from captured screenshots, plus `publish` to upload evidence and maintain a PR comment. Browser automation, `setup`, and the skill are deferred.
 
 ## Usage
 
@@ -66,6 +66,26 @@ node /path/to/pr-evidence/dist/cli.js finish --results /path/to/results.json
 `finish` stops the latest run's owned app, validates the results, and builds `evidence.gif` from all captured PNG files in filename order. It persists the outcome in `run.json` and prints `ok: true`, `result`, `ticket`, `criteria`, `screenshots`, and `gifPath`. With no screenshots, `gifPath` is null. The GIF loops with 1.5 seconds per frame and is reduced to fit within 10 MiB. Screenshots retain their proportions and are scaled to fit the GIF format's limit of 65,535 pixels per dimension.
 
 Exit status is 0 when every criterion passes, 1 when any criterion fails (with evidence still produced and `ok: true`), or 2 for a tool error such as invalid results, a missing run, or a GIF build failure.
+
+## Publish evidence
+
+Install the GitHub CLI (`gh`) and authenticate with `gh auth login --hostname github.com` (use your host for Enterprise Cloud). Publishing requires repository write access and an OAuth or personal access token; GitHub App and Actions tokens are refused. Supported hosts are `github.com` and `*.ghe.com`, not GitHub Enterprise Server.
+
+After `finish`, run from the tested repository:
+
+```sh
+node /path/to/pr-evidence/dist/cli.js publish
+```
+
+`publish` selects the repository's latest saved run, which must be finished, and finds an open PR using that run's saved branch and origin repository. PRs from forks are not found. If no PR is found, the command exits with status 2 and keeps the evidence so you can open a PR and retry.
+
+The command uploads the GIF, when present, and all screenshots, then creates or replaces an evidence comment containing the result, tested commit, ticket, criterion results, failed-criterion images, GIF, and collapsed screenshots. It matches an existing comment by the `<!-- pr-evidence -->` marker at its start and the authenticated author. Two colleagues publishing to the same PR therefore get separate comments; neither adopts the other's comment.
+
+If the tested commit is not on GitHub, publishing exits with status 2 and asks you to push it first, before uploading or changing a comment. If the commit is on GitHub but differs from the PR head, publishing proceeds with the warning "The PR head differs from the tested commit" in both the comment and JSON output. Runs made with `--allow-dirty` also carry a comment warning about uncommitted changes.
+
+Uploads use an undocumented GitHub attachment endpoint and fail closed on errors or unexpected attachment URLs. PNG and GIF uploads must be nonempty and at most 10 MiB each. All uploads complete before the comment is changed, so an upload failure leaves the comment untouched, though earlier uploads may already exist. Image rendering in a real PR has not yet been verified.
+
+Success exits with status 0 and prints `ok: true`, `pullRequest` (number and URL), `commentUrl`, and `warnings`. This status indicates successful publication even when the run's criteria failed. Tool errors exit with status 2.
 
 ## Configuration and stored evidence
 
