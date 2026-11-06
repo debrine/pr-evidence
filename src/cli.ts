@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { finish } from "./commands/finish.js";
 import { start } from "./commands/start.js";
 import { stopLatestRunApp } from "./commands/stop.js";
 import { CliError } from "./errors.js";
 import { readRepoState } from "./repoState.js";
 
+const failedCriteriaExitCode = 1;
 const toolFailureExitCode = 2;
 
 function print(document: Record<string, unknown>): void {
@@ -27,6 +29,20 @@ async function runCommand(argv: string[]): Promise<Record<string, unknown>> {
         allowDirty: values["allow-dirty"],
         url: values.url,
       });
+    }
+    case "finish": {
+      const { values } = parseArgs({
+        args: commandArgs,
+        options: { results: { type: "string" } },
+      });
+      if (values.results === undefined) {
+        throw new CliError("usage", "finish needs --results <file>.");
+      }
+      const outcome = await finish(process.cwd(), values.results);
+      if (outcome.result === "fail") {
+        process.exitCode = failedCriteriaExitCode;
+      }
+      return { ...outcome };
     }
     case "stop":
       return {
