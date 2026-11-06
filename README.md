@@ -1,6 +1,6 @@
 # pr-evidence
 
-In development. This branch provides the `start` and `stop` CLI foundation for testing a branch in a real browser and posting screenshots and GIFs as pull request evidence. Browser testing, `finish`, `publish`, `setup`, and the skill are deferred.
+In development. This branch provides `start`, `stop`, and `finish` to manage a test run, record criterion results, and build a GIF from captured screenshots. Browser automation, `publish`, `setup`, and the skill are deferred.
 
 ## Usage
 
@@ -41,7 +41,31 @@ node /path/to/pr-evidence/dist/cli.js start --url http://localhost:3000
 
 This mode requires an HTTP response, including an error status. It needs no config file, but an existing config is still validated. `stop` never stops the external app. Each `start` first stops the app owned by the repository's previous run; `stop` also targets only that latest owned run.
 
-Both commands print JSON with `ok`. A successful `start` includes the commit SHA, branch, dirty flag, URL, run and screenshot directories, and optional login and ticket metadata. A successful `stop` includes `stopped`. Failures exit with status 2 and include an `error` with a stable `code` and a human-readable `message`.
+All commands print JSON with `ok`. A successful `start` includes the commit SHA, branch, dirty flag, URL, run and screenshot directories, and optional login and ticket metadata. A successful `stop` includes `stopped`. Tool errors exit with status 2 and include an `error` with a stable `code` and a human-readable `message`.
+
+## Finish a run
+
+Save PNG screenshots in the directory returned by `start`, using sortable names such as `001-loaded.png` and `002-saved.png`. Write a results JSON file with a nonempty `criteria` array:
+
+```json
+{
+  "ticket": "ABC-1",
+  "criteria": [
+    { "description": "Page loads", "result": "pass", "screenshot": "001-loaded.png" },
+    { "description": "Save succeeds", "result": "fail", "note": "Server returned 500" }
+  ]
+}
+```
+
+Each criterion requires a nonempty `description` and a `result` of `pass` or `fail`. Optional `screenshot` names a captured PNG file in that run, without a directory path; optional `note` is a string. The top-level `ticket` is an optional string or null.
+
+```sh
+node /path/to/pr-evidence/dist/cli.js finish --results /path/to/results.json
+```
+
+`finish` stops the latest run's owned app, validates the results, and builds `evidence.gif` from all captured PNG files in filename order. It persists the outcome in `run.json` and prints `ok: true`, `result`, `ticket`, `criteria`, `screenshots`, and `gifPath`. With no screenshots, `gifPath` is null. The GIF loops with 1.5 seconds per frame and is reduced to fit within 10 MiB.
+
+Exit status is 0 when every criterion passes, 1 when any criterion fails (with evidence still produced and `ok: true`), or 2 for a tool error such as invalid results, a missing run, or a GIF build failure.
 
 ## Configuration and stored evidence
 

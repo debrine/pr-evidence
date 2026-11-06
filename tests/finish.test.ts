@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decompressFrames, parseGIF } from "gifuct-js";
 import { describe, expect, it } from "vitest";
@@ -27,6 +27,54 @@ function decodeGif(path: string) {
 }
 
 describe("finish", () => {
+  describe("screenshot membership", () => {
+    it.each(["", ".", "..", "notes.txt", "directory.png"])(
+      "rejects a reference outside the captured PNG file set: %j",
+      async (screenshot) => {
+        const { context, started, resultsDirectory } = await startRun();
+        writeFileSync(join(started.screenshotDirectory, "notes.txt"), "not an image");
+        if (screenshot === "directory.png") {
+          mkdirSync(join(started.screenshotDirectory, screenshot));
+        }
+        const results = writeResults(resultsDirectory, {
+          criteria: [{ description: "It works", result: "pass", screenshot }],
+        });
+
+        const finished = await runCli(["finish", "--results", results], context);
+
+        expect(finished.exitCode).toBe(2);
+        expect(finished.json.error.code).toBe("results_invalid");
+        const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
+        expect(record.outcome).toBeUndefined();
+      },
+    );
+
+    it("excludes PNG directories from evidence and GIF frames", async () => {
+      const { context, started, resultsDirectory } = await startRun();
+      mkdirSync(join(started.screenshotDirectory, "001-directory.png"));
+      mkdirSync(join(started.screenshotDirectory, "002-directory.PNG"));
+      writeSolidPng(join(started.screenshotDirectory, "003-captured.PNG"), [255, 0, 0]);
+      const results = writeResults(resultsDirectory, {
+        criteria: [{ description: "It works", result: "pass", screenshot: "003-captured.PNG" }],
+      });
+
+      const finished = await runCli(["finish", "--results", results], context);
+
+      expect(finished.exitCode).toBe(0);
+      expect(finished.json.screenshots).toEqual(["003-captured.PNG"]);
+      expect(finished.json.criteria[0].screenshot).toBe("003-captured.PNG");
+      expect(decodeGif(finished.json.gifPath)).toHaveLength(1);
+      const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
+      expect(record.outcome).toEqual({
+        result: "pass",
+        ticket: null,
+        criteria: [{ description: "It works", result: "pass", screenshot: "003-captured.PNG" }],
+        screenshots: ["003-captured.PNG"],
+        gifPath: finished.json.gifPath,
+      });
+    });
+  });
+
   it("stitches the screenshots, in order, into a step-by-step GIF", async () => {
     const { context, started, resultsDirectory } = await startRun();
     writeSolidPng(join(started.screenshotDirectory, "002-blue.png"), [0, 0, 255]);

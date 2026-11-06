@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CliError } from "../errors.js";
 import {
   findLatestRun,
@@ -19,7 +19,7 @@ function invalid(problem: string): CliError {
   return new CliError("results_invalid", `Results file: ${problem}`);
 }
 
-function parseCriterion(value: unknown, runDirectory: string): CriterionResult {
+function parseCriterion(value: unknown, screenshots: string[]): CriterionResult {
   const { description, result, screenshot, note } = (value ?? {}) as Record<string, unknown>;
   if (typeof description !== "string" || description.trim() === "") {
     throw invalid('every criterion needs a "description".');
@@ -33,18 +33,15 @@ function parseCriterion(value: unknown, runDirectory: string): CriterionResult {
   if (screenshot === undefined) {
     return { description, result, note };
   }
-  if (typeof screenshot !== "string" || basename(screenshot) !== screenshot) {
-    throw invalid(`"${description}" must name its screenshot by file name only.`);
-  }
-  if (!existsSync(join(screenshotDirectoryOf(runDirectory), screenshot))) {
-    throw invalid(`"${description}" names ${screenshot}, which was not captured.`);
+  if (typeof screenshot !== "string" || !screenshots.includes(screenshot)) {
+    throw invalid(`"${description}" names screenshot ${screenshot}, which was not captured.`);
   }
   return { description, result, screenshot, note };
 }
 
 function parseResults(
   resultsPath: string,
-  runDirectory: string,
+  screenshots: string[],
 ): { ticket: string | null; criteria: CriterionResult[] } {
   let document: { ticket?: unknown; criteria?: unknown };
   try {
@@ -61,7 +58,7 @@ function parseResults(
   }
   return {
     ticket,
-    criteria: document.criteria.map((criterion) => parseCriterion(criterion, runDirectory)),
+    criteria: document.criteria.map((criterion) => parseCriterion(criterion, screenshots)),
   };
 }
 
@@ -73,8 +70,8 @@ export async function finish(repositoryPath: string, resultsPath: string): Promi
   }
   await stopLatestRunApp(repositoryKey);
 
-  const { ticket, criteria } = parseResults(resultsPath, runDirectory);
   const screenshots = listScreenshots(runDirectory);
+  const { ticket, criteria } = parseResults(resultsPath, screenshots);
   let gifPath: string | null = null;
   if (screenshots.length > 0) {
     gifPath = gifPathOf(runDirectory);

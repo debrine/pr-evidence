@@ -73,8 +73,9 @@ export function gifPathOf(runDirectory: string): string {
 }
 
 export function listScreenshots(runDirectory: string): string[] {
-  return readdirSync(screenshotDirectoryOf(runDirectory))
-    .filter((fileName) => fileName.toLowerCase().endsWith(".png"))
+  return readdirSync(screenshotDirectoryOf(runDirectory), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png"))
+    .map((entry) => entry.name)
     .sort();
 }
 
