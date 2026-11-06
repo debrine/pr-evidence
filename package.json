@@ -16,7 +16,8 @@
     "pr-evidence": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "skill"
   ],
   "engines": {
     "node": ">=20"
@@ -25,6 +26,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
     "prepack": "npm run build"
   },
   "dependencies": {

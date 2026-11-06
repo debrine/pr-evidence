@@ -50,6 +50,11 @@ function runDirectoryFor(repositoryKey: string, sha: string): string {
   return join(evidenceRoot(), repositoryKey, sha);
 }
 
+/** Kept per repo, so a login for one app is never available to another. */
+export function browserProfileDirectoryOf(repositoryKey: string): string {
+  return join(evidenceRoot(), repositoryKey, "browser-profile");
+}
+
 export function screenshotDirectoryOf(runDirectory: string): string {
   return join(runDirectory, "screenshots");
 }

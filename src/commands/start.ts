@@ -3,12 +3,15 @@ import { configFileName, loadConfig, type Config } from "../config.js";
 import { CliError } from "../errors.js";
 import {
   appLogPathOf,
+  browserProfileDirectoryOf,
   createRun,
   pruneExpiredRuns,
   readRunRecord,
   screenshotDirectoryOf,
   writeRunRecord,
 } from "../evidenceStore.js";
+import { helperVersion } from "../packageInfo.js";
+import { checkBrowserCli, checkGitHubCli } from "../prerequisites.js";
 import { readRepoState, type RepoState } from "../repoState.js";
 import { stopLatestRunApp } from "./stop.js";
 
@@ -16,6 +19,44 @@ export interface StartOptions {
   repositoryPath: string;
   allowDirty: boolean;
   url?: string;
+  skillVersion?: string;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Pins the browser to a dedicated profile. The two unset variables would
+ * otherwise attach it to the developer's own Chrome and their real sessions.
+ */
+function describeBrowser(repositoryKey: string) {
+  const profileDirectory = browserProfileDirectoryOf(repositoryKey);
+  const sessionName = `pr-evidence-${repositoryKey.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+  return {
+    profileDirectory,
+    commandPrefix: [
+      "env",
+      "-u CHROME_DEVTOOLS_AXI_AUTO_CONNECT",
+      "-u CHROME_DEVTOOLS_AXI_BROWSER_URL",
+      `CHROME_DEVTOOLS_AXI_USER_DATA_DIR=${shellQuote(profileDirectory)}`,
+      `CHROME_DEVTOOLS_AXI_SESSION=${shellQuote(sessionName)}`,
+    ].join(" "),
+  };
+}
+
+function collectWarnings(skillVersion: string | undefined): string[] {
+  const warnings: string[] = [];
+  const missingGitHubCli = checkGitHubCli();
+  if (missingGitHubCli !== null) {
+    warnings.push(`Publishing will fail. ${missingGitHubCli.fix}`);
+  }
+  if (skillVersion !== undefined && skillVersion !== helperVersion) {
+    warnings.push(
+      `The skill is version ${skillVersion} but the helper is ${helperVersion}. Run: npx pr-evidence setup`,
+    );
+  }
+  return warnings;
 }
 
 async function startConfiguredApp(
@@ -67,6 +108,14 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     );
   }
 
+  const missingBrowserCli = checkBrowserCli();
+  if (missingBrowserCli !== null) {
+    throw new CliError(
+      "missing_prerequisite",
+      `${missingBrowserCli.name} is required. ${missingBrowserCli.fix}`,
+    );
+  }
+
   await stopLatestRunApp(repoState.repositoryKey);
   pruneExpiredRuns();
   const runDirectory =
@@ -83,5 +132,7 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     screenshotDirectory: screenshotDirectoryOf(runDirectory),
     login: config?.login ?? null,
     ticketFolder: config?.ticketFolder ?? null,
+    browser: describeBrowser(repoState.repositoryKey),
+    warnings: collectWarnings(options.skillVersion),
   };
 }
