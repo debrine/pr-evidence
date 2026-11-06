@@ -11,6 +11,7 @@ interface Bitmap {
 
 const stepDelayMilliseconds = 1500;
 const maximumGifBytes = 10 * 1024 * 1024;
+const maximumGifDimension = 65535;
 const maximumColors = 256;
 const candidateWidths = [1280, 960, 720, 480];
 // About 50x faster than the default on busy images, and fine for UI screenshots.
@@ -76,11 +77,14 @@ function fitToCanvas(source: Bitmap, canvasWidth: number, canvasHeight: number):
 }
 
 function encodeGif(frames: Bitmap[], width: number, height: number): Uint8Array {
+  const scale = Math.min(1, maximumGifDimension / width, maximumGifDimension / height);
+  const canvasWidth = Math.max(1, Math.round(width * scale));
+  const canvasHeight = Math.max(1, Math.round(height * scale));
   const encoder = gifenc.GIFEncoder();
   for (const frame of frames) {
-    const { rgba } = fitToCanvas(frame, width, height);
+    const { rgba } = fitToCanvas(frame, canvasWidth, canvasHeight);
     const palette = gifenc.quantize(rgba, maximumColors, { format: colorFormat });
-    encoder.writeFrame(gifenc.applyPalette(rgba, palette, colorFormat), width, height, {
+    encoder.writeFrame(gifenc.applyPalette(rgba, palette, colorFormat), canvasWidth, canvasHeight, {
       palette,
       delay: stepDelayMilliseconds,
       repeat: 0,

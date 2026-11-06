@@ -115,6 +115,32 @@ describe("finish", () => {
     expect(frames[0]!.dims.height).toBe(frames[1]!.dims.height);
   });
 
+  it.each([
+    [12, 70000, 11, 65535],
+    [70000, 12, 1280, 1],
+    [12, 65535, 12, 65535],
+  ])("preserves GIF format dimensions for a %i x %i screenshot", async (
+    width, height, expectedWidth, expectedHeight,
+  ) => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-page.png"), [0, 255, 0], width, height);
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "Full page captured", result: "pass", screenshot: "001-page.png" }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(0);
+    expect(finished.json.ok).toBe(true);
+    const frames = decodeGif(finished.json.gifPath);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.dims).toMatchObject({ width: expectedWidth, height: expectedHeight });
+    expect(frames[0]!.patch).toHaveLength(expectedWidth * expectedHeight * 4);
+    const centerPixelOffset = Math.floor(expectedHeight / 2) * expectedWidth * 4;
+    expect(frames[0]!.patch[centerPixelOffset]).toBeLessThan(50);
+    expect(frames[0]!.patch[centerPixelOffset + 1]).toBeGreaterThan(200);
+  });
+
   it("keeps a long run under the 10 MiB image limit", async () => {
     const { context, started, resultsDirectory } = await startRun();
     for (let step = 1; step <= 14; step += 1) {
