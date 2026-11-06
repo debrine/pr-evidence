@@ -63,7 +63,7 @@ Each criterion requires a nonempty `description` and a `result` of `pass` or `fa
 node /path/to/pr-evidence/dist/cli.js finish --results /path/to/results.json
 ```
 
-`finish` stops the latest run's owned app, validates the results, and builds `evidence.gif` from all captured PNG files in filename order. It persists the outcome in `run.json` and prints `ok: true`, `result`, `ticket`, `criteria`, `screenshots`, and `gifPath`. With no screenshots, `gifPath` is null. The GIF loops with 1.5 seconds per frame and is reduced to fit within 10 MiB.
+`finish` stops the latest run's owned app, validates the results, and builds `evidence.gif` from all captured PNG files in filename order. It persists the outcome in `run.json` and prints `ok: true`, `result`, `ticket`, `criteria`, `screenshots`, and `gifPath`. With no screenshots, `gifPath` is null. The GIF loops with 1.5 seconds per frame and is reduced to fit within 10 MiB. Screenshots retain their proportions and are scaled to fit the GIF format's limit of 65,535 pixels per dimension.
 
 Exit status is 0 when every criterion passes, 1 when any criterion fails (with evidence still produced and `ok: true`), or 2 for a tool error such as invalid results, a missing run, or a GIF build failure.
 
