@@ -24,6 +24,9 @@ export interface FakeGitHubOptions {
   viewerPermission?: string;
   repositoryId?: number;
   pullRequests?: { number: number; branch: string; headSha: string; owner?: string }[];
+  /** Commits GitHub has besides the PR heads. */
+  commits?: string[];
+  commitLookupStatus?: number;
   comments?: FakeComment[];
   uploadResponse?: (name: string, uploadCount: number) => { status: number; body: string } | null;
 }
@@ -117,6 +120,23 @@ export async function startFakeGitHub(options: FakeGitHubOptions = {}): Promise<
           head: { sha: pullRequest.headSha },
         })),
       );
+      return;
+    }
+
+    const commitMatch = /^\/repos\/[^/]+\/[^/]+\/commits\/([^/]+)$/.exec(url.pathname);
+    if (commitMatch && request.method === "GET") {
+      const sha = commitMatch[1]!;
+      const knownCommits = [
+        ...(options.commits ?? []),
+        ...(options.pullRequests ?? []).map((pullRequest) => pullRequest.headSha),
+      ];
+      if (options.commitLookupStatus !== undefined) {
+        sendJson(response, options.commitLookupStatus, { message: "Lookup failed" });
+      } else if (knownCommits.includes(sha)) {
+        sendJson(response, 200, { sha });
+      } else {
+        sendJson(response, 422, { message: `No commit found for SHA: ${sha}` });
+      }
       return;
     }
 

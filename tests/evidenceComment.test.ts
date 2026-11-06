@@ -18,7 +18,7 @@ function renderWithBranch(branch: string | null): string {
     outcome: { result: "pass", ticket: null, criteria: [], screenshots: [], gifPath: null },
     screenshotUrls: new Map(),
     gifUrl: null,
-    headHasMoved: false,
+    headDiffers: false,
   });
 }
 

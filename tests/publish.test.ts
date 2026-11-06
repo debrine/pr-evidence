@@ -205,18 +205,58 @@ describe("publish", () => {
     expect(github.comments[0]!.body).not.toContain("uncommitted changes");
   });
 
-  it("warns when the PR head has moved past the tested commit", async () => {
+  it("warns in neutral words when the tested commit is on GitHub but is not the PR head", async () => {
     const { github, context } = await finishedRun({
-      fakeGitHubOptions: () => ({
+      fakeGitHubOptions: (headSha) => ({
         pullRequests: [{ number: 7, branch, headSha: "f".repeat(40) }],
+        commits: [headSha],
       }),
     });
 
     const published = await runCli(["publish"], context);
 
     expect(published.exitCode).toBe(0);
-    expect(published.json.warnings.join(" ")).toMatch(/moved past/);
+    expect(published.json.warnings.join(" ")).toContain("The PR head differs from the tested commit");
+    expect(github.comments[0]!.body).toContain("The PR head differs from the tested commit");
+    expect(github.comments[0]!.body).not.toContain("moved past");
     expect(github.comments[0]!.body).toContain(`compare/`);
+  });
+
+  it("refuses a tested commit that is not on GitHub, leaving the PR untouched", async () => {
+    const existingBody = "<!-- pr-evidence -->\nEarlier evidence";
+    const { github, context, started } = await finishedRun({
+      fakeGitHubOptions: () => ({
+        pullRequests: [{ number: 7, branch, headSha: "f".repeat(40) }],
+        comments: [{ id: 1, body: existingBody, user: { login: "tester" } }],
+      }),
+    });
+
+    const published = await runCli(["publish"], context);
+
+    expect(published.exitCode).toBe(2);
+    expect(published.json.error.code).toBe("commit_not_on_github");
+    expect(published.json.error.message).toMatch(/push/i);
+    expect(published.json.error.message).toContain(started.sha);
+    expect(github.uploads).toEqual([]);
+    expect(github.commentWrites).toEqual([]);
+    expect(github.comments.map((comment) => comment.body)).toEqual([existingBody]);
+  });
+
+  it("fails closed when GitHub cannot say whether it has the tested commit", async () => {
+    const { github, context } = await finishedRun({
+      fakeGitHubOptions: (headSha) => ({
+        pullRequests: [{ number: 7, branch, headSha: "f".repeat(40) }],
+        commits: [headSha],
+        commitLookupStatus: 500,
+      }),
+    });
+
+    const published = await runCli(["publish"], context);
+
+    expect(published.exitCode).toBe(2);
+    expect(published.json.error.code).toBe("github_request_failed");
+    expect(github.uploads).toEqual([]);
+    expect(github.commentWrites).toEqual([]);
   });
 
   it("keeps the evidence and reports when the branch has no PR yet", async () => {

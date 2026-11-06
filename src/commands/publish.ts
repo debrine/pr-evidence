@@ -60,6 +60,14 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
   const github = new GitHubClient(repository, token);
   const { repositoryId, viewerLogin } = await github.readRepositoryAccess();
   const pullRequest = await requirePullRequest(github, record.branch, runDirectory);
+  const headDiffers = pullRequest.headSha !== record.sha;
+  if (headDiffers && !(await github.hasCommit(record.sha))) {
+    throw new CliError(
+      "commit_not_on_github",
+      `The tested commit ${record.sha} is not on GitHub. The evidence is saved; push the commit and run publish again.`,
+      { runDirectory },
+    );
+  }
 
   const uploader = new GitHubAttachmentUploader({
     uploadsBaseUrl: uploadsBaseUrl(repository.host),
@@ -71,14 +79,13 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
   const gifUrl = outcome.gifPath === null ? null : await uploader.upload(outcome.gifPath);
   const screenshotUrls = await uploadScreenshots(uploader, runDirectory, outcome.screenshots);
 
-  const headHasMoved = pullRequest.headSha !== record.sha;
   const body = renderEvidenceComment({
     repository,
     record,
     outcome,
     screenshotUrls,
     gifUrl,
-    headHasMoved,
+    headDiffers,
   });
   // Author is checked as well as the marker: anyone can post the marker, and
   // adopting their comment would leave them able to edit the evidence.
@@ -93,8 +100,6 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
   return {
     pullRequest: { number: pullRequest.number, url: pullRequest.url },
     commentUrl,
-    warnings: headHasMoved
-      ? [`The PR head has moved past the tested commit ${record.sha}.`]
-      : [],
+    warnings: headDiffers ? [`The PR head differs from the tested commit ${record.sha}.`] : [],
   };
 }

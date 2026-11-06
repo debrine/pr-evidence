@@ -10,7 +10,7 @@ export interface EvidenceCommentInput {
   /** Hosted URL for each uploaded file, by file name. */
   screenshotUrls: Map<string, string>;
   gifUrl: string | null;
-  headHasMoved: boolean;
+  headDiffers: boolean;
 }
 
 /** Makes untrusted text safe for one line of Markdown, including inside a table cell. */
@@ -53,11 +53,11 @@ function renderSummary(input: EvidenceCommentInput): string[] {
       "> This run included uncommitted changes, so it does not exactly show the commit above.",
     );
   }
-  if (input.headHasMoved) {
+  if (input.headDiffers) {
     lines.push(
       "",
       "> [!WARNING]",
-      "> The PR head had moved past the tested commit when this was published.",
+      "> The PR head differs from the tested commit.",
     );
   }
   return lines;

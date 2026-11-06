@@ -23,6 +23,7 @@ const allowedTokenPrefixes = ["gho_", "ghp_", "github_pat_"];
 const uploadPermissions = ["ADMIN", "MAINTAIN", "WRITE"];
 const commentsPerPage = 100;
 const requestTimeoutMilliseconds = 30_000;
+const unknownCommitStatus = 422;
 
 export function assertSupportedHost(host: string): void {
   if (host !== "github.com" && !host.endsWith(".ghe.com")) {
@@ -92,7 +93,9 @@ export class GitHubClient {
       throw new CliError("github_request_failed", `${method} ${path} failed: ${String(cause)}`);
     }
     if (!response.ok) {
-      throw new CliError("github_request_failed", `${method} ${path} returned ${response.status}.`);
+      throw new CliError("github_request_failed", `${method} ${path} returned ${response.status}.`, {
+        status: response.status,
+      });
     }
     return (await response.json()) as ResponseBody;
   }
@@ -137,6 +140,18 @@ export class GitHubClient {
     return pullRequest
       ? { number: pullRequest.number, url: pullRequest.html_url, headSha: pullRequest.head.sha }
       : null;
+  }
+
+  async hasCommit(sha: string): Promise<boolean> {
+    try {
+      await this.request("GET", `${this.repositoryPath}/commits/${sha}`);
+      return true;
+    } catch (error) {
+      if (error instanceof CliError && error.details.status === unknownCommitStatus) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async findComment(
