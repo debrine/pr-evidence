@@ -1,4 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { CliError } from "./errors.js";
@@ -22,10 +23,13 @@ function readyTimeoutMilliseconds(): number {
 }
 
 /** The HTTP status from `url`, or null when nothing answered. */
-export async function probeUrl(url: string): Promise<number | null> {
+export async function probeUrl(url: string, signal?: AbortSignal): Promise<number | null> {
   try {
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(probeTimeoutMilliseconds),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(probeTimeoutMilliseconds),
+        ...(signal ? [signal] : []),
+      ]),
       redirect: "manual",
     });
     await response.body?.cancel();
@@ -64,10 +68,12 @@ async function waitUntilReady(
   url: string,
   child: ChildProcess,
   logPath: string,
+  signal: AbortSignal,
 ): Promise<void> {
   const deadline = Date.now() + readyTimeoutMilliseconds();
   let status: number | null = null;
   while (true) {
+    signal.throwIfAborted();
     if (child.exitCode !== null || child.signalCode !== null) {
       const exit = child.signalCode === null ? `code ${child.exitCode}` : `signal ${child.signalCode}`;
       throw new CliError(
@@ -86,9 +92,9 @@ async function waitUntilReady(
         { appOutput: readAppOutput(logPath) },
       );
     }
-    status = await probeUrl(url);
+    status = await probeUrl(url, signal);
     if (status === null || status >= 500) {
-      await sleep(readyPollMilliseconds);
+      await sleep(readyPollMilliseconds, undefined, { signal });
     }
   }
 }
@@ -114,21 +120,38 @@ export async function startApp(
     stdio: ["ignore", logDescriptor, logDescriptor],
   });
   closeSync(logDescriptor);
-  const processId = child.pid;
-  if (processId === undefined) {
-    throw new CliError("app_exited", `Could not launch the start command: ${command}`);
-  }
-  const app = { processId, processStartTime: readProcessStartTime(processId) };
+  const cancellation = new AbortController();
+  const interrupt = (signal: NodeJS.Signals) => cancellation.abort(
+    new CliError("app_interrupted", `Startup interrupted by ${signal}.`),
+  );
+  const onInterrupt = () => interrupt("SIGINT");
+  const onTerminate = () => interrupt("SIGTERM");
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  let app: AppProcess | undefined;
   try {
+    try {
+      await once(child, "spawn");
+    } catch (error) {
+      throw new CliError("app_exited", `Could not launch the start command: ${command}. ${String(error)}`);
+    }
+    const processId = child.pid!;
+    app = { processId, processStartTime: readProcessStartTime(processId) };
     options.onStarted(app);
-    await waitUntilReady(options.readyUrl, child, options.logPath);
+    await waitUntilReady(options.readyUrl, child, options.logPath, cancellation.signal);
+    cancellation.signal.throwIfAborted();
+    child.unref();
+    return app;
   } catch (error) {
-    await stopApp(app);
-    options.onStopped();
-    throw error;
+    if (app) {
+      await stopApp(app);
+      options.onStopped();
+    }
+    throw cancellation.signal.aborted ? cancellation.signal.reason : error;
+  } finally {
+    process.off("SIGINT", onInterrupt);
+    process.off("SIGTERM", onTerminate);
   }
-  child.unref();
-  return app;
 }
 
 export function isAppRunning(app: AppProcess): boolean {

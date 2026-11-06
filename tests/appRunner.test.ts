@@ -59,6 +59,78 @@ function appProcessId(pidFile: string): number {
 }
 
 describe("app runner", () => {
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "cleans up owned startup when readiness is interrupted by %s",
+    async (signal) => {
+      const pidFile = join(createTemporaryDirectory(), "app.pid");
+      const { repository } = await repositoryWithApp(
+        (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile} 60000`,
+      );
+      const home = createHome();
+      const unrelatedApp = await startTestServer();
+      const child = spawn(process.execPath, [resolve("dist/cli.js"), "start"], {
+        cwd: repository.path,
+        env: { ...process.env, HOME: home, PR_EVIDENCE_READY_TIMEOUT_MS: "10000" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const closed = new Promise((resolveClose, reject) => {
+        child.on("error", reject);
+        child.on("close", (exitCode, exitSignal) => resolveClose({ exitCode, exitSignal }));
+      });
+      try {
+        await expect.poll(() => existsSync(pidFile)).toBe(true);
+        const processId = appProcessId(pidFile);
+        child.kill(signal);
+        const result = await closed;
+        console.log("interrupted startup CLI", JSON.stringify({ signal, result, stdout, stderr }));
+
+        expect(isRunning(processId)).toBe(false);
+        expect(JSON.parse(stdout).error.code).toBe("app_interrupted");
+        expect(JSON.parse(stdout).error.message).toContain(signal);
+        expect(stderr).toBe("");
+        const repositoryDirectory = join(home, ".pr-evidence", readdirSync(join(home, ".pr-evidence"))[0]!);
+        const runDirectory = join(repositoryDirectory, git(repository.path, "rev-parse", "HEAD"));
+        expect(JSON.parse(readFileSync(join(runDirectory, "run.json"), "utf8")).app).toBeUndefined();
+        expect((await fetch(unrelatedApp.url)).status).toBe(200);
+        expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(false);
+      } finally {
+        child.kill("SIGKILL");
+        await closed;
+      }
+    },
+  );
+
+  it("removes startup signal handlers after readiness succeeds", async () => {
+    const directory = createTemporaryDirectory();
+    const reportPath = join(directory, "signal-handlers.json");
+    const preload = join(directory, "report-handlers.mjs");
+    writeFileSync(preload, `
+      import { writeFileSync } from 'node:fs';
+      process.on('beforeExit', () => writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({
+        SIGINT: process.listenerCount('SIGINT'), SIGTERM: process.listenerCount('SIGTERM'),
+      })));
+    `);
+    const pidFile = join(directory, "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile}`,
+    );
+    const home = createHome();
+    try {
+      const result = await runCli(["start"], {
+        cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${preload}` },
+      });
+      appProcessId(pidFile);
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(readFileSync(reportPath, "utf8"))).toEqual({ SIGINT: 0, SIGTERM: 0 });
+    } finally {
+      await runCli(["stop"], { cwd: repository.path, home });
+    }
+  });
+
   it("reports an asynchronous spawn error as a structured CLI failure", async () => {
     const directory = createTemporaryDirectory();
     const missingShell = join(directory, "missing-shell");
