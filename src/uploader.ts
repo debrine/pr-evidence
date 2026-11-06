@@ -7,21 +7,14 @@ export interface Uploader {
   upload(filePath: string): Promise<string>;
 }
 
-interface FileType {
-  contentType: string;
-  maximumBytes: number;
-}
-
-const imageLimitBytes = 10 * 1024 * 1024;
-const videoLimitBytes = 100 * 1024 * 1024;
+export const imageLimitBytes = 10 * 1024 * 1024;
 const uploadTimeoutMilliseconds = 60_000;
 const attachmentPath =
   /^\/user-attachments\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const fileTypes: Record<string, FileType> = {
-  ".png": { contentType: "image/png", maximumBytes: imageLimitBytes },
-  ".gif": { contentType: "image/gif", maximumBytes: imageLimitBytes },
-  ".webm": { contentType: "video/webm", maximumBytes: videoLimitBytes },
+const contentTypes: Record<string, string> = {
+  ".png": "image/png",
+  ".gif": "image/gif",
 };
 
 function failed(filePath: string, problem: string): CliError {
@@ -44,18 +37,18 @@ export class GitHubAttachmentUploader implements Uploader {
   ) {}
 
   async upload(filePath: string): Promise<string> {
-    const fileType = fileTypes[extname(filePath).toLowerCase()];
-    if (fileType === undefined) {
+    const contentType = contentTypes[extname(filePath).toLowerCase()];
+    if (contentType === undefined) {
       throw failed(filePath, "unsupported file type.");
     }
     const { size } = statSync(filePath);
-    if (size === 0 || size > fileType.maximumBytes) {
+    if (size === 0 || size > imageLimitBytes) {
       throw failed(filePath, `size ${size} is outside the allowed range.`);
     }
 
     const query = new URLSearchParams({
       name: basename(filePath),
-      content_type: fileType.contentType,
+      content_type: contentType,
       repository_id: String(this.options.repositoryId),
     });
     let response: Response;

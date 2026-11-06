@@ -1,7 +1,12 @@
 import { join } from "node:path";
 import { CliError } from "../errors.js";
 import { commentMarker, renderEvidenceComment } from "../evidenceComment.js";
-import { findLatestRun, readRunRecord, screenshotDirectoryOf } from "../evidenceStore.js";
+import {
+  findLatestRun,
+  findRunForCommit,
+  screenshotDirectoryOf,
+  type Run,
+} from "../evidenceStore.js";
 import {
   assertSupportedHost,
   GitHubClient,
@@ -9,7 +14,7 @@ import {
   uploadsBaseUrl,
   type PullRequest,
 } from "../github.js";
-import { readRepoState } from "../repoState.js";
+import { readRepoState, type RepoState } from "../repoState.js";
 import { GitHubAttachmentUploader, type Uploader } from "../uploader.js";
 
 async function requirePullRequest(
@@ -40,13 +45,18 @@ async function uploadScreenshots(
   return urls;
 }
 
-export async function publish(repositoryPath: string): Promise<Record<string, unknown>> {
-  const { repositoryKey } = readRepoState(repositoryPath);
-  const runDirectory = findLatestRun(repositoryKey);
-  const record = runDirectory === null ? null : readRunRecord(runDirectory);
-  if (runDirectory === null || record === null) {
+/** The checked-out commit's finished run, otherwise this checkout's latest run. */
+function chooseRun(repoState: RepoState): Run {
+  const commitRun = findRunForCommit(repoState.repositoryKey, repoState.sha);
+  const run = commitRun?.record.outcome ? commitRun : findLatestRun(repoState);
+  if (run === null) {
     throw new CliError("no_run", "There is no saved run to publish.");
   }
+  return run;
+}
+
+export async function publish(repositoryPath: string): Promise<Record<string, unknown>> {
+  const { directory: runDirectory, record } = chooseRun(readRepoState(repositoryPath));
   const { outcome, repository } = record;
   if (outcome === undefined) {
     throw new CliError("run_not_finished", "The latest run has no results. Use finish first.");

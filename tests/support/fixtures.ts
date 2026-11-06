@@ -19,8 +19,8 @@ export function writeSolidPng(
 export function writeNoisePng(path: string, width: number, height: number): void {
   const image = new PNG({ width, height });
   for (let pixel = 0; pixel < width * height; pixel += 1) {
-    const value = () => Math.floor(Math.random() * 256);
-    image.data.set([value(), value(), value(), 255], pixel * 4);
+    const randomChannel = () => Math.floor(Math.random() * 256);
+    image.data.set([randomChannel(), randomChannel(), randomChannel(), 255], pixel * 4);
   }
   writeFileSync(path, PNG.sync.write(image, { deflateLevel: 1 }));
 }

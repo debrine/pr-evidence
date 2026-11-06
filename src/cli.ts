@@ -74,7 +74,7 @@ async function runCommand(argv: string[]): Promise<Record<string, unknown>> {
       return publish(process.cwd());
     case "stop":
       return {
-        stopped: await stopLatestRunApp(readRepoState(process.cwd()).repositoryKey),
+        stopped: await stopLatestRunApp(readRepoState(process.cwd())),
       };
     default:
       throw new CliError("unknown_command", `Unknown command: ${command}`);

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createHome,
@@ -161,11 +161,25 @@ describe("start, for the agent", () => {
 
     const result = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
 
-    const profile = join(home, ".pr-evidence", "acme__widgets", "browser-profile");
+    const profile = join(dirname(result.json.runDirectory), "browser-profile");
     expect(result.json.browser.profileDirectory).toBe(profile);
     expect(result.json.browser.commandPrefix).toContain(`CHROME_DEVTOOLS_AXI_USER_DATA_DIR='${profile}'`);
     expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_AUTO_CONNECT");
     expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_BROWSER_URL");
+    expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_MCP_SERVER_URL");
+  });
+
+  it("warns at the start of a run when evidence could never be published", async () => {
+    const repository = createRepository({ remoteUrl: "git@git.corp.example:acme/widgets.git" });
+    const app = await startTestServer();
+
+    const result = await runCli(["start", "--url", app.url], {
+      cwd: repository.path,
+      home: createHome(),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings.join(" ")).toMatch(/Enterprise Server/);
   });
 
   it("warns when the skill and helper versions differ", async () => {

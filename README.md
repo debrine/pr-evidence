@@ -39,6 +39,8 @@ login: # optional: names of env vars, never the values
 ticketFolder: docs/tickets # optional: local Markdown tickets
 ```
 
+The start command must stay in the foreground, so use `docker compose up` rather than `docker compose up -d`. If it exits during startup, even with status 0, `start` fails. An app it leaves running in the background is not tracked or stopped.
+
 Without a config, pass `--url` to test an app that is already running or a preview deployment.
 
 ## Use it
@@ -69,8 +71,14 @@ The tool never uses your day-to-day browser profile.
 - GitHub offers no supported way to delete an uploaded file, so check the screenshots before you approve them.
 - Use local or seeded data, not production.
 - Files uploaded to a private repo need repository access to view.
+- Push the tested commit first. Publishing refuses a commit that is not on GitHub, before uploading anything.
+- If the commit is on GitHub but is not the PR head, the evidence is still posted, with the warning "The PR head differs from the tested commit".
+- PRs from forks are not found.
+- Each person who publishes on a PR gets their own evidence comment, so nobody can edit another person's evidence.
 
-Evidence is saved in `~/.pr-evidence/<repo>/<sha>/` and pruned after 14 days. If the branch has no PR yet, it stays there until you run `npx pr-evidence publish`.
+Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/` and pruned after 14 days. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, it stays there until you run `npx pr-evidence publish`, which posts the run for the checked-out commit.
+
+To test two branches at once, use separate `git worktree` checkouts. Their apps and runs stay apart, but they share a saved browser profile, so run the browser steps one at a time.
 
 ## Helper commands
 

@@ -25,21 +25,27 @@ const commentsPerPage = 100;
 const requestTimeoutMilliseconds = 30_000;
 const unknownCommitStatus = 422;
 
+/** Why evidence cannot be published to this host, or null when it can. */
+export function describeUnsupportedHost(host: string): string | null {
+  return host === "github.com" || host.endsWith(".ghe.com")
+    ? null
+    : `${host} is not supported: uploads work on github.com and *.ghe.com, not GitHub Enterprise Server or other hosts.`;
+}
+
 export function assertSupportedHost(host: string): void {
-  if (host !== "github.com" && !host.endsWith(".ghe.com")) {
-    throw new CliError(
-      "unsupported_host",
-      `${host} is not supported: uploads work on github.com and *.ghe.com, not GitHub Enterprise Server or other hosts.`,
-    );
+  const problem = describeUnsupportedHost(host);
+  if (problem !== null) {
+    throw new CliError("unsupported_host", problem);
   }
 }
 
-function subdomainUrl(subdomain: string, host: string): string {
+/** PR_EVIDENCE_GITHUB_BASE_URL lets tests point every GitHub service at a local fake. */
+function gitHubServiceUrl(subdomain: string, host: string): string {
   return process.env.PR_EVIDENCE_GITHUB_BASE_URL ?? `https://${subdomain}.${host}`;
 }
 
 export function uploadsBaseUrl(host: string): string {
-  return subdomainUrl("uploads", host);
+  return gitHubServiceUrl("uploads", host);
 }
 
 /** The token from `gh`, checked against the classes the upload endpoint accepts. */
@@ -76,7 +82,7 @@ export class GitHubClient {
     path: string,
     body?: unknown,
   ): Promise<ResponseBody> {
-    const url = `${subdomainUrl("api", this.repository.host)}${path}`;
+    const url = `${gitHubServiceUrl("api", this.repository.host)}${path}`;
     let response: Response;
     try {
       response = await fetch(url, {

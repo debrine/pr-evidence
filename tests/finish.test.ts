@@ -176,6 +176,21 @@ describe("finish", () => {
     expect(existsSync(finished.json.gifPath)).toBe(true);
   });
 
+  it("still records the outcome when the GIF cannot be built", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeFileSync(join(started.screenshotDirectory, "001-broken.png"), "not a png");
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "It saves", result: "fail", note: "500 error" }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(1);
+    expect(finished.json.result).toBe("fail");
+    expect(finished.json.gifPath).toBeNull();
+    expect(finished.json.warnings.join(" ")).toContain("001-broken.png");
+  });
+
   it("finishes without a GIF when there are no screenshots", async () => {
     const { context, resultsDirectory } = await startRun();
     const results = writeResults(resultsDirectory, {

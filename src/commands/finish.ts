@@ -5,7 +5,6 @@ import {
   findLatestRun,
   gifPathOf,
   listScreenshots,
-  readRunRecord,
   screenshotDirectoryOf,
   writeRunRecord,
   type CriterionResult,
@@ -62,24 +61,46 @@ function parseResults(
   };
 }
 
-export async function finish(repositoryPath: string, resultsPath: string): Promise<RunOutcome> {
-  const { repositoryKey } = readRepoState(repositoryPath);
-  const runDirectory = findLatestRun(repositoryKey);
-  if (runDirectory === null) {
-    throw new CliError("no_run", "There is no run to finish. Use start first.");
+/** A GIF failure must not cost the run its evidence, so it is a warning here. */
+function tryBuildGif(
+  runDirectory: string,
+  screenshots: string[],
+  warnings: string[],
+): string | null {
+  if (screenshots.length === 0) {
+    return null;
   }
-  await stopLatestRunApp(repositoryKey);
-
-  const screenshots = listScreenshots(runDirectory);
-  const { ticket, criteria } = parseResults(resultsPath, screenshots);
-  let gifPath: string | null = null;
-  if (screenshots.length > 0) {
-    gifPath = gifPathOf(runDirectory);
+  const gifPath = gifPathOf(runDirectory);
+  try {
     buildGif(
       screenshots.map((fileName) => join(screenshotDirectoryOf(runDirectory), fileName)),
       gifPath,
     );
+    return gifPath;
+  } catch (error) {
+    if (!(error instanceof CliError)) {
+      throw error;
+    }
+    warnings.push(`No GIF was built. ${error.message}`);
+    return null;
   }
+}
+
+export async function finish(
+  repositoryPath: string,
+  resultsPath: string,
+): Promise<RunOutcome & { warnings: string[] }> {
+  const repoState = readRepoState(repositoryPath);
+  const run = findLatestRun(repoState);
+  if (run === null) {
+    throw new CliError("no_run", "There is no run to finish. Use start first.");
+  }
+  await stopLatestRunApp(repoState);
+
+  const screenshots = listScreenshots(run.directory);
+  const { ticket, criteria } = parseResults(resultsPath, screenshots);
+  const warnings: string[] = [];
+  const gifPath = tryBuildGif(run.directory, screenshots, warnings);
   const outcome: RunOutcome = {
     result: criteria.every((criterion) => criterion.result === "pass") ? "pass" : "fail",
     ticket,
@@ -87,6 +108,6 @@ export async function finish(repositoryPath: string, resultsPath: string): Promi
     screenshots,
     gifPath,
   };
-  writeRunRecord(runDirectory, { ...readRunRecord(runDirectory)!, outcome });
-  return outcome;
+  writeRunRecord(run.directory, { ...findLatestRun(repoState)!.record, outcome });
+  return { ...outcome, warnings };
 }
