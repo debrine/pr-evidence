@@ -59,6 +59,37 @@ function appProcessId(pidFile: string): number {
 }
 
 describe("app runner", () => {
+  it("reports an asynchronous spawn error as a structured CLI failure", async () => {
+    const directory = createTemporaryDirectory();
+    const missingShell = join(directory, "missing-shell");
+    const preload = join(directory, "fail-spawn.mjs");
+    writeFileSync(preload, `
+      import childProcess from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      const originalSpawn = childProcess.spawn;
+      childProcess.spawn = function (command, ...args) {
+        return originalSpawn.call(this, command === 'sh' ? ${JSON.stringify(missingShell)} : command, ...args);
+      };
+      syncBuiltinESMExports();
+    `);
+    const { repository } = await repositoryWithApp(() => "echo should not run");
+    const home = createHome();
+
+    const result = await runCli(["start"], {
+      cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${preload}` },
+    });
+    console.log("asynchronous spawn failure CLI", JSON.stringify(result));
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.ok).toBe(false);
+    expect(result.json.error.code).toBe("app_exited");
+    expect(result.json.error.message).toContain("Could not launch the start command");
+    expect(result.json.error.message).toContain("ENOENT");
+    expect(result.stderr).toBe("");
+    const stopped = await runCli(["stop"], { cwd: repository.path, home });
+    expect(stopped.json.stopped).toBe(false);
+  });
+
   it("starts the configured app, waits until it is ready, and stop stops it", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository, port } = await repositoryWithApp(
