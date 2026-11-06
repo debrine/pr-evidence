@@ -35,15 +35,28 @@ function tryGit(repositoryPath: string, ...args: string[]): string | null {
 }
 
 export function parseRemoteUrl(remoteUrl: string): RepositoryIdentity | null {
-  const match =
-    /^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(
-      remoteUrl,
-    );
-  if (!match) {
+  const scpRemote = /^(?:[^@/:]+@)?([^/:]+):([^/].*)$/.exec(remoteUrl);
+  try {
+    const url = new URL(scpRemote
+      ? `ssh://${scpRemote[1]}/${scpRemote[2]}`
+      : remoteUrl);
+    if (!["http:", "https:", "ssh:"].includes(url.protocol) || url.search || url.hash) {
+      return null;
+    }
+    if (url.hostname === "." || url.hostname === "..") {
+      return null;
+    }
+    const match = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.pathname);
+    if (!match) {
+      return null;
+    }
+    const [, owner, name] = match;
+    const port = url.protocol === "ssh:" && url.port === "22" ? "" : url.port;
+    const host = `${url.hostname.toLowerCase()}${port ? `:${port}` : ""}`;
+    return { host, owner: owner!, name: name! };
+  } catch {
     return null;
   }
-  const [, host, owner, name] = match;
-  return { host: host!.toLowerCase(), owner: owner!, name: name! };
 }
 
 export function readRepoState(repositoryPath: string): RepoState {
@@ -65,7 +78,7 @@ export function readRepoState(repositoryPath: string): RepoState {
     rootPath: topLevel,
     sha,
     branch: tryGit(repositoryPath, "symbolic-ref", "--quiet", "--short", "HEAD"),
-    dirty: git(repositoryPath, "status", "--porcelain") !== "",
+    dirty: git(repositoryPath, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none") !== "",
     repository,
     repositoryKey: `${repository === null ? "local" : "remote"}-${identityHash}`,
   };

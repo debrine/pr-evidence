@@ -18,6 +18,50 @@ describe("start", () => {
     expect(result.json.error.code).toBe("dirty_working_tree");
   });
 
+  it.each(["untracked files", "modified submodule files", "untracked submodule files"])(
+    "ignores Git display preferences when guarding and recording %s",
+    async (change) => {
+      const repository = createRepository();
+      git(repository.path, "config", "status.showUntrackedFiles", "no");
+      git(repository.path, "config", "diff.ignoreSubmodules", "all");
+      if (change === "untracked files") {
+        writeFileSync(join(repository.path, "new-source.txt"), "uncommitted source");
+      } else {
+        const submodule = createRepository();
+        git(repository.path, "-c", "protocol.file.allow=always", "submodule", "add", "-q", submodule.path, "dependency");
+        git(repository.path, "commit", "-q", "-am", "add submodule");
+        const name = change === "modified submodule files" ? "app.txt" : "new-source.txt";
+        writeFileSync(join(repository.path, "dependency", name), "uncommitted source");
+      }
+      const home = createHome();
+      const app = await startTestServer();
+      const refused = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
+      const allowed = await runCli(["start", "--allow-dirty", "--url", app.url], { cwd: repository.path, home });
+      console.log("Git display preferences CLI", JSON.stringify({ change, refused, allowed }));
+      expect(refused.exitCode).toBe(2);
+      expect(refused.json.error.code).toBe("dirty_working_tree");
+      expect(allowed.exitCode).toBe(0);
+      expect(allowed.json.dirty).toBe(true);
+      expect(JSON.parse(readFileSync(join(allowed.json.runDirectory, "run.json"), "utf8")).dirty).toBe(true);
+    },
+  );
+
+  it("keeps the same network identity across default transports and explicit default ports", async () => {
+    const repository = createRepository();
+    const home = createHome();
+    const app = await startTestServer();
+    const first = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
+    for (const origin of [
+      "https://github.com/acme/widgets.git", "https://github.com:443/acme/widgets.git",
+      "http://github.com:80/acme/widgets.git", "ssh://git@github.com:22/acme/widgets.git",
+    ]) {
+      git(repository.path, "remote", "set-url", "origin", origin);
+      const next = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
+      expect(next.exitCode).toBe(0);
+      expect(next.json.runDirectory).toBe(first.json.runDirectory);
+    }
+  });
+
   it("records the tested commit in a run directory outside the repo", async () => {
     const repository = createRepository({ branch: "feature/login" });
     const app = await startTestServer();

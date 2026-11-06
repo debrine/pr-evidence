@@ -65,34 +65,32 @@ async function waitUntilReady(
   child: ChildProcess,
   logPath: string,
 ): Promise<void> {
-  let failedExitCode: number | null = null;
-  // A zero exit is not a failure: the command may have daemonised the app.
-  child.once("exit", (exitCode, signal) => {
-    if (exitCode !== 0) {
-      failedExitCode = exitCode ?? (signal === null ? -1 : 128);
-    }
-  });
-
   const deadline = Date.now() + readyTimeoutMilliseconds();
-  while (Date.now() < deadline) {
-    const status = await probeUrl(url);
-    if (status !== null && status < 500) {
-      return;
-    }
-    if (failedExitCode !== null) {
+  let status: number | null = null;
+  while (true) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const exit = child.signalCode === null ? `code ${child.exitCode}` : `signal ${child.signalCode}`;
       throw new CliError(
         "app_exited",
-        `The start command exited with code ${failedExitCode} before ${url} was ready.`,
+        `The start command exited with ${exit}. The command must stay in the foreground; detached apps it leaves behind are not managed.`,
         { appOutput: readAppOutput(logPath) },
       );
     }
-    await sleep(readyPollMilliseconds);
+    if (status !== null && status < 500) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new CliError(
+        "app_not_ready",
+        `${url} was not ready within ${readyTimeoutMilliseconds() / 1000} seconds.`,
+        { appOutput: readAppOutput(logPath) },
+      );
+    }
+    status = await probeUrl(url);
+    if (status === null || status >= 500) {
+      await sleep(readyPollMilliseconds);
+    }
   }
-  throw new CliError(
-    "app_not_ready",
-    `${url} was not ready within ${readyTimeoutMilliseconds() / 1000} seconds.`,
-    { appOutput: readAppOutput(logPath) },
-  );
 }
 
 /**

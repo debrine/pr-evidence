@@ -1,0 +1,41 @@
+
+> pr-evidence@0.0.0 test
+> vitest run tests/appRunner.test.ts -t zero-status launcher before-probe --silent=false
+
+
+ RUN  v5.1.0 /Users/dylanbrine/.no-mistakes/worktrees/1d9da7ea4b73/01M6Q9DYE54GACM8Q7NKEETZHQ
+
+stdout | tests/appRunner.test.ts > app runner > rejects an exited zero-status launcher before-probe even if its detached server answers
+foreground-only CLI {"mode":"before-probe","result":{"exitCode":0,"stderr":"","json":{"ok":true,"sha":"2e009fc101f0d0338bb4d33211e61d0d5114ad29","branch":"main","dirty":false,"url":"http://127.0.0.1:53949/","runDirectory":"/var/folders/df/wpdsfkq52gl3p0ws8dzr_tp00000gn/T/pr-evidence-test-XTgJe8/.pr-evidence/remote-929e10f0651137ee23a31b8fc34a3480951030fd06ffa150a6f9a5e7d29f2f36/2e009fc101f0d0338bb4d33211e61d0d5114ad29","screenshotDirectory":"/var/folders/df/wpdsfkq52gl3p0ws8dzr_tp00000gn/T/pr-evidence-test-XTgJe8/.pr-evidence/remote-929e10f0651137ee23a31b8fc34a3480951030fd06ffa150a6f9a5e7d29f2f36/2e009fc101f0d0338bb4d33211e61d0d5114ad29/screenshots","login":null,"ticketFolder":null}}}
+
+ ❯ tests/appRunner.test.ts (23 tests | 1 failed | 22 skipped) 869ms
+   ❯ app runner (23)
+     × rejects an exited zero-status launcher before-probe even if its detached server answers 867ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/appRunner.test.ts > app runner > rejects an exited zero-status launcher before-probe even if its detached server answers
+AssertionError: expected +0 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ tests/appRunner.test.ts:249:31
+    247|       const processId = appProcessId(pidFile);
+    248|       console.log("foreground-only CLI", JSON.stringify({ mode, result…
+    249|       expect(result.exitCode).toBe(2);
+       |                               ^
+    250|       expect(result.json.error.code).toBe("app_exited");
+    251|       expect(result.json.error.message).toContain("foreground");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 22 skipped (23)
+   Start at  08:20:01
+   Duration  1.50s (tests 96%, transform 2%, import 2%)
+

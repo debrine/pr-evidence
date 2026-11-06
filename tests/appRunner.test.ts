@@ -177,7 +177,10 @@ describe("app runner", () => {
     await runCli(["stop"], { cwd: repository.path, home });
   });
 
-  it.each(["different hosts", "remote-less repositories"])(
+  it.each([
+    "different hosts", "remote-less repositories", "relative filesystem origins",
+    "dot-relative filesystem origins", "https endpoint ports", "http endpoint ports", "ssh endpoint ports",
+  ])(
     "isolates ownership and same-commit evidence for %s",
     async (identityCase) => {
       const pidFile = join(createTemporaryDirectory(), "app.pid");
@@ -194,6 +197,18 @@ describe("app runner", () => {
       if (identityCase === "different hosts") {
         git(firstPath, "remote", "add", "origin", "git@github.com:acme/widgets.git");
         git(secondPath, "remote", "add", "origin", "https://git.example.com/acme/widgets.git");
+      }
+      const origins: Record<string, [string, string]> = {
+        "relative filesystem origins": ["../acme/widgets", "../acme/widgets"],
+        "dot-relative filesystem origins": ["./acme/widgets", "./acme/widgets"],
+        "https endpoint ports": ["https://git.example.com:8443/acme/widgets.git", "https://git.example.com:9443/acme/widgets.git"],
+        "http endpoint ports": ["http://git.example.com:8080/acme/widgets.git", "http://git.example.com:9080/acme/widgets.git"],
+        "ssh endpoint ports": ["ssh://git@git.example.com:2222/acme/widgets.git", "ssh://git@git.example.com:2223/acme/widgets.git"],
+      };
+      const originPair = origins[identityCase];
+      if (originPair) {
+        git(firstPath, "remote", "add", "origin", originPair[0]);
+        git(secondPath, "remote", "add", "origin", originPair[1]);
       }
       const home = createHome();
       const externalApp = await startTestServer();
@@ -213,6 +228,45 @@ describe("app runner", () => {
       } finally {
         await runCli(["stop"], { cwd: firstPath, home });
       }
+    },
+  );
+
+  it.each(["before-probe", "during-probe"])(
+    "rejects an exited zero-status launcher %s even if its detached server answers",
+    async (mode) => {
+      const pidFile = join(createTemporaryDirectory(), "detached.pid");
+      const launcher = resolve("tests/support/detachedLauncher.mjs");
+      const { repository } = await repositoryWithApp(
+        (port) => `node ${launcher} ${mode} ${port} ${pidFile}`,
+      );
+      const home = createHome();
+      const result = await runCli(["start"], {
+        cwd: repository.path, home,
+        env: { PR_EVIDENCE_READY_TIMEOUT_MS: "1500" },
+      });
+      const processId = appProcessId(pidFile);
+      console.log("foreground-only CLI", JSON.stringify({ mode, result }));
+      expect(result.exitCode).toBe(2);
+      expect(result.json.error.code).toBe("app_exited");
+      expect(result.json.error.message).toContain("foreground");
+      expect(isRunning(processId)).toBe(true);
+      const stopped = await runCli(["stop"], { cwd: repository.path, home });
+      expect(stopped.json.stopped).toBe(false);
+    },
+  );
+
+  it.each(["exit 0", "exit 3", "kill -TERM $$"])(
+    "requires the command to stay in the foreground when it runs %s",
+    async (command) => {
+      const { repository } = await repositoryWithApp(() => command);
+      const result = await runCli(["start"], {
+        cwd: repository.path, home: createHome(),
+        env: { PR_EVIDENCE_READY_TIMEOUT_MS: "500" },
+      });
+      console.log("exited command CLI", JSON.stringify({ command, result }));
+      expect(result.exitCode).toBe(2);
+      expect(result.json.error.code).toBe("app_exited");
+      expect(result.json.error.message).toContain("foreground");
     },
   );
 
