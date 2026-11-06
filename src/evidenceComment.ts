@@ -23,6 +23,11 @@ function escapeInline(text: string): string {
     .replace(/\s*\n\s*/g, " ");
 }
 
+/** Encodes a branch name as one URL path segment that is also safe in a Markdown link destination. */
+function encodeBranchForLink(branch: string): string {
+  return encodeURIComponent(branch).replaceAll("(", "%28").replaceAll(")", "%29");
+}
+
 function image(fileName: string, url: string): string {
   return `![${escapeInline(fileName)}](${url})`;
 }
@@ -38,7 +43,7 @@ function renderSummary(input: EvidenceCommentInput): string[] {
   ];
   if (record.branch !== null) {
     lines.push(
-      `- **Later changes:** [compare with the branch](${repositoryUrl}/compare/${record.sha}...${encodeURI(record.branch)})`,
+      `- **Later changes:** [compare with the branch](${repositoryUrl}/compare/${record.sha}...${encodeBranchForLink(record.branch)})`,
     );
   }
   if (record.dirty) {
