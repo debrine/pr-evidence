@@ -22,7 +22,7 @@ Repository namespace isolation covers identical commits on different hosts and i
 
 Assumptions and delivery context:
 
-- Remote identities now use a digest of host, owner, and name; local identities use Git's absolute common directory. No migration of the previous ambiguous evidence namespace is included. Existing records in that namespace remain eligible for global pruning.
+- The current repository identity and namespace migration rules are documented in [Configuration and stored evidence](../README.md#configuration-and-stored-evidence).
 - Per-worktree isolation, finish, publish, setup, and the skill remain deferred.
 - Retain ghToken/browserCli harness options, fake GitHub/browser executables, and the fake GitHub base URL by explicit user decision: stacked feat/publish and feat/skill-and-setup branches use them.
 - Dependencies were initially absent; npm ci installed the locked project dependencies before the red run. No system packages or global configuration were changed.
