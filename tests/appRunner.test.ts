@@ -59,6 +59,80 @@ function appProcessId(pidFile: string): number {
 }
 
 describe("app runner", () => {
+  it.each(["exit", "timeout"])(
+    "returns a bounded verbose log tail and cleans up after %s",
+    async (failure) => {
+      const directory = createTemporaryDirectory();
+      const pidFile = join(directory, "app.pid");
+      const verboseApp = join(directory, "verbose-app.mjs");
+      const preload = join(directory, "limit-log-read.mjs");
+      const tail = "終".repeat(3996) + "end\n";
+      writeFileSync(verboseApp, `
+        import { writeFileSync, writeSync } from 'node:fs';
+        writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+        writeSync(1, Buffer.alloc(1024 * 1024, 'x'));
+        writeSync(1, ${JSON.stringify(tail)});
+        ${failure === "exit" ? "process.exit(3);" : "setInterval(() => {}, 1000);"}
+      `);
+      writeFileSync(preload, `
+        import fs from 'node:fs';
+        import { syncBuiltinESMExports } from 'node:module';
+        const originalRead = fs.readFileSync;
+        fs.readFileSync = function (path, ...args) {
+          if (String(path).endsWith('/app.log') && fs.statSync(path).size > 64 * 1024) {
+            throw new RangeError('whole log exceeds simulated memory limit');
+          }
+          return originalRead.call(this, path, ...args);
+        };
+        syncBuiltinESMExports();
+      `);
+      const { repository } = await repositoryWithApp(() => `exec ${process.execPath} ${verboseApp}`);
+      const home = createHome();
+      const result = await runCli(["start"], {
+        cwd: repository.path, home,
+        env: { NODE_OPTIONS: `--import=${preload}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" },
+      });
+      console.log("bounded log tail CLI", JSON.stringify({ failure, result }));
+      const processId = appProcessId(pidFile);
+      expect(result.exitCode).toBe(2);
+      expect(result.json.error.code).toBe(failure === "exit" ? "app_exited" : "app_not_ready");
+      expect(result.json.error.appOutput).toBe(tail);
+      expect(isRunning(processId)).toBe(false);
+      expect(result.stderr).toBe("");
+      expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(false);
+    },
+  );
+
+  it("probes external and configured apps without newer Node cancellation APIs", async () => {
+    const preload = join(createTemporaryDirectory(), "node20-cancellation.mjs");
+    writeFileSync(preload, "AbortSignal.any = undefined;\n");
+    const env = { NODE_OPTIONS: `--import=${preload}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" };
+    const home = createHome();
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile}`,
+    );
+    const externalApp = await startTestServer();
+    const external = await runCli(["start", "--url", externalApp.url], { cwd: repository.path, home, env });
+    console.log("Node 20 external URL CLI", JSON.stringify(external));
+    expect(external.exitCode).toBe(0);
+    try {
+      const configured = await runCli(["start"], { cwd: repository.path, home, env });
+      console.log("Node 20 configured app CLI", JSON.stringify(configured));
+      if (existsSync(pidFile)) appProcessId(pidFile);
+      expect(configured.exitCode).toBe(0);
+      const otherRepository = createRepository();
+      writeFileSync(join(otherRepository.path, ".pr-evidence.yml"), `start: exit 3\nreadyUrl: ${externalApp.url}\n`);
+      git(otherRepository.path, "add", ".");
+      git(otherRepository.path, "commit", "-q", "-m", "add config");
+      const occupied = await runCli(["start"], { cwd: otherRepository.path, home: createHome(), env });
+      console.log("Node 20 occupied URL CLI", JSON.stringify(occupied));
+      expect(occupied.json.error.code).toBe("ready_url_in_use");
+    } finally {
+      await runCli(["stop"], { cwd: repository.path, home });
+    }
+  });
+
   it.each(["SIGINT", "SIGTERM"] as const)(
     "cleans up owned startup when readiness is interrupted by %s",
     async (signal) => {

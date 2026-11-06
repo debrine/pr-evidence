@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { CliError } from "./errors.js";
 
@@ -24,18 +24,24 @@ function readyTimeoutMilliseconds(): number {
 
 /** The HTTP status from `url`, or null when nothing answered. */
 export async function probeUrl(url: string, signal?: AbortSignal): Promise<number | null> {
+  const cancellation = new AbortController();
+  const cancel = () => cancellation.abort(signal?.reason);
+  const timeout = setTimeout(() => cancellation.abort(), probeTimeoutMilliseconds);
+  timeout.unref();
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) cancel();
   try {
     const response = await fetch(url, {
-      signal: AbortSignal.any([
-        AbortSignal.timeout(probeTimeoutMilliseconds),
-        ...(signal ? [signal] : []),
-      ]),
+      signal: cancellation.signal,
       redirect: "manual",
     });
     await response.body?.cancel();
     return response.status;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -52,7 +58,22 @@ function readProcessStartTime(processId: number): string | null {
 }
 
 function readAppOutput(logPath: string): string {
-  return existsSync(logPath) ? readFileSync(logPath, "utf8").slice(-appOutputCharacters) : "";
+  if (!existsSync(logPath)) return "";
+  const descriptor = openSync(logPath, "r");
+  try {
+    const size = fstatSync(descriptor).size;
+    const buffer = Buffer.alloc(Math.min(size, appOutputCharacters * 4));
+    const position = size - buffer.length;
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const count = readSync(descriptor, buffer, bytesRead, buffer.length - bytesRead, position + bytesRead);
+      if (count === 0) break;
+      bytesRead += count;
+    }
+    return buffer.subarray(0, bytesRead).toString("utf8").slice(-appOutputCharacters);
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 function isProcessGroupAlive(processGroupId: number): boolean {
