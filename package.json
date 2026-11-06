@@ -1,0 +1,38 @@
+{
+  "name": "pr-evidence",
+  "version": "0.0.0",
+  "description": "Test a branch in a real browser and post screenshots and GIFs as evidence on its PR.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debrine/pr-evidence.git"
+  },
+  "homepage": "https://github.com/debrine/pr-evidence#readme",
+  "bugs": {
+    "url": "https://github.com/debrine/pr-evidence/issues"
+  },
+  "type": "module",
+  "bin": {
+    "pr-evidence": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
