@@ -12,11 +12,30 @@ import { join } from "node:path";
 import { isAppRunning, type AppProcess } from "./appRunner.js";
 import type { RepoState } from "./repoState.js";
 
+export interface CriterionResult {
+  description: string;
+  result: "pass" | "fail";
+  /** File name in the run's screenshot directory. */
+  screenshot?: string;
+  note?: string;
+}
+
+export interface RunOutcome {
+  result: "pass" | "fail";
+  ticket: string | null;
+  criteria: CriterionResult[];
+  /** Screenshot file names in step order. */
+  screenshots: string[];
+  gifPath: string | null;
+}
+
 export interface RunRecord extends RepoState {
   url: string;
   createdAt: string;
   /** Present only while an app this tool started may still be running. */
   app?: AppProcess;
+  /** Present once the run has been finished. */
+  outcome?: RunOutcome;
 }
 
 const runFileName = "run.json";
@@ -47,6 +66,16 @@ export function createRun(record: RunRecord): string {
   writeRunRecord(runDirectory, record);
   writeFileSync(join(evidenceRoot(), record.repositoryKey, latestRunFileName), record.sha);
   return runDirectory;
+}
+
+export function gifPathOf(runDirectory: string): string {
+  return join(runDirectory, "evidence.gif");
+}
+
+export function listScreenshots(runDirectory: string): string[] {
+  return readdirSync(screenshotDirectoryOf(runDirectory))
+    .filter((fileName) => fileName.toLowerCase().endsWith(".png"))
+    .sort();
 }
 
 export function appLogPathOf(runDirectory: string): string {
