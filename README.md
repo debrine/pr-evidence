@@ -31,6 +31,8 @@ The configured command runs from the tested repository's root. It must stay in t
 
 Startup waits up to two minutes for an HTTP response below 500 from `readyUrl`; redirects are not followed. An existing response at that URL prevents launching over another app. Failed startup stops the owned process group and reports recent app output. `PR_EVIDENCE_READY_TIMEOUT_MS` is a test-only timeout override.
 
+During pending startup, `SIGINT` or `SIGTERM` stops the owned process group, clears its ownership record, and returns an `app_interrupted` JSON error. These temporary signal handlers are removed when startup completes.
+
 To use an already running app without taking ownership of it:
 
 ```sh
