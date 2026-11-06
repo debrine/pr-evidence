@@ -11,6 +11,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isAppRunning, type AppProcess } from "./appRunner.js";
+import { CliError } from "./errors.js";
 import type { RepoState } from "./repoState.js";
 
 export interface CriterionResult {
@@ -74,8 +75,23 @@ export function writeRunRecord(runDirectory: string, record: RunRecord): void {
   writeFileSync(join(runDirectory, runFileName), `${JSON.stringify(record, null, 2)}\n`);
 }
 
+export function assertRunAvailable(repoState: RepoState): void {
+  const existing = findRunForCommit(repoState.repositoryKey, repoState.sha);
+  if (
+    existing !== null &&
+    existing.record.rootPath !== repoState.rootPath &&
+    existing.record.outcome === undefined
+  ) {
+    throw new CliError(
+      "run_checkout_conflict",
+      `Another checkout (${existing.record.rootPath}) has an unfinished run at ${repoState.sha}. Finish that run before starting this commit here.`,
+    );
+  }
+}
+
 /** Starts a fresh run. A rerun of the same commit replaces the earlier evidence. */
 export function createRun(repoState: RepoState, url: string): string {
+  assertRunAvailable(repoState);
   const record = { ...repoState, url, createdAt: new Date().toISOString() };
   const runDirectory = runDirectoryFor(record.repositoryKey, record.sha);
   rmSync(runDirectory, { recursive: true, force: true });
@@ -109,9 +125,10 @@ export function findRunForCommit(repositoryKey: string, sha: string): Run | null
 /** The most recent run from this checkout, if it still exists. */
 export function findLatestRun({ repositoryKey, rootPath }: RepoState): Run | null {
   const pointerPath = latestRunPointerPath(repositoryKey, rootPath);
-  return existsSync(pointerPath)
+  const run = existsSync(pointerPath)
     ? findRunForCommit(repositoryKey, readFileSync(pointerPath, "utf8").trim())
     : null;
+  return run?.record.rootPath === rootPath ? run : null;
 }
 
 export function readRunRecord(runDirectory: string): RunRecord | null {

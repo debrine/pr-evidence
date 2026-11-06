@@ -3,6 +3,7 @@ import { configFileName, loadConfig, type Config } from "../config.js";
 import { CliError } from "../errors.js";
 import {
   appLogPathOf,
+  assertRunAvailable,
   browserProfileDirectoryOf,
   createRun,
   pruneExpiredRuns,
@@ -120,6 +121,7 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     );
   }
 
+  assertRunAvailable(repoState);
   await stopLatestRunApp(repoState);
   pruneExpiredRuns();
   const runDirectory =

@@ -78,7 +78,7 @@ The tool never uses your day-to-day browser profile.
 
 Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/` and pruned after 14 days. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, it stays there until you run `npx pr-evidence publish`, which posts the run for the checked-out commit.
 
-To test two branches at once, use separate `git worktree` checkouts. Their apps and runs stay apart, but they share a saved browser profile, so run the browser steps one at a time.
+To test two branches at once, use separate `git worktree` checkouts. Their apps and runs stay apart when testing different commits. The same commit can have only one unfinished run across checkouts: start exits 2 without changing evidence if another checkout owns that run. Finish it in its owning checkout first; starting the commit elsewhere then replaces its evidence. Stop and finish ignore runs owned by another checkout. Worktrees share a saved browser profile, so run the browser steps one at a time.
 
 ## Helper commands
 
