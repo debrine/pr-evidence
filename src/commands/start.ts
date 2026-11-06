@@ -28,16 +28,18 @@ async function startConfiguredApp(
       `Something is already answering on ${config.readyUrl}, and this tool did not start it. Stop it, or pass --url to test it.`,
     );
   }
-  const runDirectory = createRun({
+  const record = {
     ...repoState,
     url: config.readyUrl,
     createdAt: new Date().toISOString(),
-  });
+  };
+  const runDirectory = createRun(record);
   await startApp(config.start, {
     cwd: repoState.rootPath,
     logPath: appLogPathOf(runDirectory),
     readyUrl: config.readyUrl,
-    onStarted: (app) => writeRunRecord(runDirectory, { ...readRunRecord(runDirectory)!, app }),
+    onStarted: (app) => writeRunRecord(runDirectory, { ...record, app }),
+    onStopped: () => writeRunRecord(runDirectory, record),
   });
   return runDirectory;
 }

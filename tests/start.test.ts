@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createHome, createRepository, git, runCli, startTestServer } from "./support/harness.js";
 
@@ -30,9 +30,8 @@ describe("start", () => {
     expect(result.json.branch).toBe("feature/login");
     expect(result.json.dirty).toBe(false);
     expect(result.json.url).toBe(app.url);
-    expect(result.json.runDirectory).toBe(
-      join(home, ".pr-evidence", "acme__widgets", repository.headSha),
-    );
+    expect(basename(result.json.runDirectory)).toBe(repository.headSha);
+    expect(dirname(dirname(result.json.runDirectory))).toBe(join(home, ".pr-evidence"));
     expect(existsSync(join(result.json.runDirectory, "run.json"))).toBe(true);
     expect(existsSync(result.json.screenshotDirectory)).toBe(true);
     expect(git(repository.path, "status", "--porcelain")).toBe("");

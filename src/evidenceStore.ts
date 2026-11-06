@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AppProcess } from "./appRunner.js";
+import { isAppRunning, type AppProcess } from "./appRunner.js";
 import type { RepoState } from "./repoState.js";
 
 export interface RunRecord extends RepoState {
@@ -70,7 +70,8 @@ export function readRunRecord(runDirectory: string): RunRecord | null {
 
 function hasRunningApp(runDirectory: string): boolean {
   try {
-    return readRunRecord(runDirectory)?.app !== undefined;
+    const app = readRunRecord(runDirectory)?.app;
+    return app !== undefined && isAppRunning(app);
   } catch {
     return false;
   }

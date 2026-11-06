@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -175,6 +175,127 @@ describe("app runner", () => {
     expect(isRunning(firstProcessId)).toBe(false);
     expect(isRunning(secondProcessId)).toBe(true);
     await runCli(["stop"], { cwd: repository.path, home });
+  });
+
+  it.each(["different hosts", "remote-less repositories"])(
+    "isolates ownership and same-commit evidence for %s",
+    async (identityCase) => {
+      const pidFile = join(createTemporaryDirectory(), "app.pid");
+      const { repository } = await repositoryWithApp(
+        (port) => `node ${sampleApp} ${port} ${pidFile}`,
+      );
+      const firstPath = join(createTemporaryDirectory(), "widgets");
+      const secondPath = join(createTemporaryDirectory(), "widgets");
+      git(repository.path, "clone", "-q", repository.path, firstPath);
+      git(repository.path, "clone", "-q", repository.path, secondPath);
+      for (const path of [firstPath, secondPath]) {
+        git(path, "remote", "remove", "origin");
+      }
+      if (identityCase === "different hosts") {
+        git(firstPath, "remote", "add", "origin", "git@github.com:acme/widgets.git");
+        git(secondPath, "remote", "add", "origin", "https://git.example.com/acme/widgets.git");
+      }
+      const home = createHome();
+      const externalApp = await startTestServer();
+      const first = await runCli(["start"], { cwd: firstPath, home });
+      const processId = appProcessId(pidFile);
+      const screenshot = join(first.json.screenshotDirectory, "saved.png");
+      writeFileSync(screenshot, "evidence");
+      try {
+        const second = await runCli(["start", "--url", externalApp.url], { cwd: secondPath, home });
+        const stopped = await runCli(["stop"], { cwd: secondPath, home });
+        console.log("repository isolation CLI", { first, second, stopped });
+        expect(second.exitCode).toBe(0);
+        expect(isRunning(processId)).toBe(true);
+        expect(existsSync(screenshot)).toBe(true);
+        expect(second.json.runDirectory).not.toBe(first.json.runDirectory);
+        expect(stopped.json.stopped).toBe(false);
+      } finally {
+        await runCli(["stop"], { cwd: firstPath, home });
+      }
+    },
+  );
+
+  it("cleans up the app if recording ownership fails", async () => {
+    const directory = createTemporaryDirectory();
+    const pidFile = join(directory, "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${sampleApp} ${port} ${pidFile} 60000`,
+    );
+    const preload = join(directory, "fail-ownership.mjs");
+    writeFileSync(preload, `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const originalWrite = fs.writeFileSync;
+      fs.writeFileSync = function (path, data, ...options) {
+        if (String(path).endsWith('/run.json') && JSON.parse(String(data)).app) {
+          const deadline = Date.now() + 3000;
+          while (!fs.existsSync(${JSON.stringify(pidFile)}) && Date.now() < deadline) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+          setTimeout(() => process.exit(2), 1000).unref();
+          throw new Error('injected ownership write failure');
+        }
+        return originalWrite.call(this, path, data, ...options);
+      };
+      syncBuiltinESMExports();
+    `);
+    const result = await runCli(["start"], {
+      cwd: repository.path,
+      home: createHome(),
+      env: { NODE_OPTIONS: `--import=${preload}` },
+    });
+    console.log("ownership write failure CLI", result);
+    expect(result.exitCode).toBe(2);
+    expect(result.json.error.message).toContain("injected ownership write failure");
+    expect(isRunning(appProcessId(pidFile))).toBe(false);
+  });
+
+  it("clears ownership after failed startup cleanup", async () => {
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${sampleApp} ${port} ${pidFile} 60000`,
+    );
+    const home = createHome();
+    const result = await runCli(["start"], {
+      cwd: repository.path, home, env: { PR_EVIDENCE_READY_TIMEOUT_MS: "500" },
+    });
+    const repositoryDirectory = join(home, ".pr-evidence", readdirSync(join(home, ".pr-evidence"))[0]!);
+    const runDirectory = join(repositoryDirectory, git(repository.path, "rev-parse", "HEAD"));
+    console.log("failed startup CLI", result);
+    expect(result.json.error.code).toBe("app_not_ready");
+    expect(isRunning(appProcessId(pidFile))).toBe(false);
+    expect(JSON.parse(readFileSync(join(runDirectory, "run.json"), "utf8")).app).toBeUndefined();
+  });
+
+  it("prunes expired ownership after the app exits naturally but keeps live apps", async () => {
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${sampleApp} ${port} ${pidFile}`,
+    );
+    const home = createHome();
+    const started = await runCli(["start"], { cwd: repository.path, home });
+    const processId = appProcessId(pidFile);
+    const otherRepository = createRepository({ remoteUrl: "git@github.com:acme/other.git" });
+    const externalApp = await startTestServer();
+    const expire = () => {
+      const timestamp = Date.now() / 1000 - 15 * 86400;
+      utimesSync(join(started.json.runDirectory, "run.json"), timestamp, timestamp);
+    };
+    expire();
+    try {
+      const whileAlive = await runCli(["start", "--url", externalApp.url], { cwd: otherRepository.path, home });
+      expect(whileAlive.exitCode).toBe(0);
+      expect(existsSync(started.json.runDirectory)).toBe(true);
+      process.kill(processId, "SIGTERM");
+      await expect.poll(() => isRunning(processId)).toBe(false);
+      const afterExit = await runCli(["start", "--url", externalApp.url], { cwd: otherRepository.path, home });
+      console.log("prune exited app CLI", { whileAlive, afterExit });
+      expect(afterExit.exitCode).toBe(0);
+      expect(existsSync(started.json.runDirectory)).toBe(false);
+    } finally {
+      await runCli(["stop"], { cwd: repository.path, home });
+    }
   });
 
   it("reports when there is no run to stop", async () => {

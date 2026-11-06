@@ -106,6 +106,7 @@ export async function startApp(
     logPath: string;
     readyUrl: string;
     onStarted: (app: AppProcess) => void;
+    onStopped: () => void;
   },
 ): Promise<AppProcess> {
   const logDescriptor = openSync(options.logPath, "a");
@@ -120,25 +121,29 @@ export async function startApp(
     throw new CliError("app_exited", `Could not launch the start command: ${command}`);
   }
   const app = { processId, processStartTime: readProcessStartTime(processId) };
-  options.onStarted(app);
-
   try {
+    options.onStarted(app);
     await waitUntilReady(options.readyUrl, child, options.logPath);
   } catch (error) {
     await stopApp(app);
+    options.onStopped();
     throw error;
   }
   child.unref();
   return app;
 }
 
-/** Stops the process group, and only if it is still the one that was started. */
-export async function stopApp(app: AppProcess): Promise<boolean> {
+export function isAppRunning(app: AppProcess): boolean {
   if (!isProcessGroupAlive(app.processId)) {
     return false;
   }
   const currentStartTime = readProcessStartTime(app.processId);
-  if (currentStartTime !== null && currentStartTime !== app.processStartTime) {
+  return currentStartTime === null || currentStartTime === app.processStartTime;
+}
+
+/** Stops the process group, and only if it is still the one that was started. */
+export async function stopApp(app: AppProcess): Promise<boolean> {
+  if (!isAppRunning(app)) {
     return false;
   }
 

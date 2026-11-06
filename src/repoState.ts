@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { basename } from "node:path";
+import { createHash } from "node:crypto";
 import { CliError } from "./errors.js";
 
 export interface RepositoryIdentity {
@@ -57,14 +57,16 @@ export function readRepoState(repositoryPath: string): RepoState {
   }
   const remoteUrl = tryGit(repositoryPath, "remote", "get-url", "origin");
   const repository = remoteUrl === null ? null : parseRemoteUrl(remoteUrl);
+  const identity = repository === null
+    ? git(repositoryPath, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    : JSON.stringify(repository);
+  const identityHash = createHash("sha256").update(identity).digest("hex");
   return {
     rootPath: topLevel,
     sha,
     branch: tryGit(repositoryPath, "symbolic-ref", "--quiet", "--short", "HEAD"),
     dirty: git(repositoryPath, "status", "--porcelain") !== "",
     repository,
-    repositoryKey: repository
-      ? `${repository.owner}__${repository.name}`
-      : basename(topLevel),
+    repositoryKey: `${repository === null ? "local" : "remote"}-${identityHash}`,
   };
 }
