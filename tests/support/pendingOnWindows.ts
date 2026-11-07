@@ -10,9 +10,14 @@ export interface PendingGroup {
 
 export const pendingOnWindows: PendingGroup[] = [
   {
-    reason: "The app is launched with `sh`, which is not on PATH on Windows. See #19.",
+    reason: "Starting and stopping the app relies on POSIX `sh`, `ps` and process groups. See #19.",
     tests: {
       "tests/appRunner.test.ts": [
+        "app runner > returns a bounded verbose log tail and cleans up after exit",
+        "app runner > returns a bounded verbose log tail and cleans up after timeout",
+        "app runner > probes external and configured apps without newer Node cancellation APIs",
+        "app runner > removes startup signal handlers after readiness succeeds",
+        "app runner > cleans up the app if recording ownership fails",
         "app runner > cleans up owned startup when readiness is interrupted by SIGINT",
         "app runner > cleans up owned startup when readiness is interrupted by SIGTERM",
         "app runner > starts the configured app, waits until it is ready, and stop stops it",
