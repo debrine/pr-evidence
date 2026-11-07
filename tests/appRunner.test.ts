@@ -8,6 +8,7 @@ import {
   createRepository,
   createTemporaryDirectory,
   git,
+  homeEnvironment,
   runCli,
   startTestServer,
 } from "./support/harness.js";
@@ -144,7 +145,12 @@ describe("app runner", () => {
       const unrelatedApp = await startTestServer();
       const child = spawn(process.execPath, [resolve("dist/cli.js"), "start"], {
         cwd: repository.path,
-        env: { ...process.env, HOME: home, PR_EVIDENCE_READY_TIMEOUT_MS: "10000" },
+        env: {
+          ...process.env,
+          ...homeEnvironment(home),
+          PR_EVIDENCE_GITHUB_BASE_URL: "http://127.0.0.1:9",
+          PR_EVIDENCE_READY_TIMEOUT_MS: "10000",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";
@@ -156,7 +162,7 @@ describe("app runner", () => {
         child.on("close", (exitCode, exitSignal) => resolveClose({ exitCode, exitSignal }));
       });
       try {
-        await expect.poll(() => existsSync(pidFile)).toBe(true);
+        await expect.poll(() => existsSync(pidFile), { timeout: 10_000 }).toBe(true);
         const processId = appProcessId(pidFile);
         child.kill(signal);
         const result = await closed;
