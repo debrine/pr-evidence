@@ -72,7 +72,7 @@ async function describePullRequestHeadProblem(
 async function collectWarnings(
   repoState: RepoState,
   skillVersion: string | undefined,
-  newerHelperVersion: Promise<string | null>,
+  newerHelperVersionLookup: Promise<string | null>,
 ): Promise<string[]> {
   const warnings: string[] = [];
   const { repository, branch, sha } = repoState;
@@ -97,7 +97,7 @@ async function collectWarnings(
       `The skill is version ${skillVersion} but the helper is ${helperVersion}. Run: ${describeSetupCommand(helperVersion)}`,
     );
   }
-  const newerVersion = await newerHelperVersion;
+  const newerVersion = await newerHelperVersionLookup;
   if (newerVersion !== null) {
     warnings.push(
       `pr-evidence ${newerVersion} is available, and this is ${helperVersion}. Run: ${describeSetupCommand(newerVersion)}`,
@@ -160,7 +160,23 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
   }
 
   // Looked up while the app starts, so that a slow registry adds as little as possible to the run.
-  const newerHelperVersion = findNewerHelperVersion();
+  const lookupCancellation = new AbortController();
+  const newerHelperVersionLookup = findNewerHelperVersion(lookupCancellation.signal);
+  try {
+    return await startRun(options, config, repoState, newerHelperVersionLookup);
+  } catch (error) {
+    // An open request would keep the process alive until the lookup times out.
+    lookupCancellation.abort();
+    throw error;
+  }
+}
+
+async function startRun(
+  options: StartOptions,
+  config: Config | null,
+  repoState: RepoState,
+  newerHelperVersionLookup: Promise<string | null>,
+): Promise<Record<string, unknown>> {
   assertRunAvailable(repoState);
   await stopLatestRunApp(repoState);
   pruneExpiredRuns();
@@ -179,6 +195,6 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     login: config?.login ?? null,
     ticketFolder: config?.ticketFolder ?? null,
     browser: describeBrowser(repoState.repositoryKey),
-    warnings: await collectWarnings(repoState, options.skillVersion, newerHelperVersion),
+    warnings: await collectWarnings(repoState, options.skillVersion, newerHelperVersionLookup),
   };
 }

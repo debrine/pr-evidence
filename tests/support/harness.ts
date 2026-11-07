@@ -166,7 +166,7 @@ export function cliEnvironment(
     USERPROFILE: options.home,
     PATH: [toolShims, systemPath()].join(delimiter),
     PR_EVIDENCE_GITHUB_BASE_URL: "http://127.0.0.1:9",
-    // Nothing listens there, so the update check stays off the network and adds no warning.
+    // fetch refuses port 9 at once on every platform, so the update check stays off the network and adds no warning.
     PR_EVIDENCE_REGISTRY_URL: "http://127.0.0.1:9",
     ...options.env,
     ...(isWindows ? windowsEnvironment(toolShims, options.env?.NODE_OPTIONS) : {}),

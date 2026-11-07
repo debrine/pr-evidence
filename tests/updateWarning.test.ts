@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { startFakeGitHub } from "./support/fakeGitHub.js";
 import { startUnresponsiveRegistry, startVersionRegistry } from "./support/fakeRegistry.js";
 import { createHome, createRepository, runCli, startTestServer } from "./support/harness.js";
-
-const helperVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+import { helperVersion, npxCommand } from "./support/helperRelease.js";
 
 async function startWithRegistry(registryEnv: Record<string, string>) {
   const repository = createRepository();
@@ -38,20 +35,20 @@ describe("update warning", () => {
   });
 
   it("gives up on a registry that does not answer after about 2 seconds, without failing", async () => {
-    const timeStart = async (registryEnv: Record<string, string>) => {
+    const runStartAndTime = async (registryEnv: Record<string, string>) => {
       const startedAt = performance.now();
       const result = await startWithRegistry(registryEnv);
       return { result, elapsedMilliseconds: performance.now() - startedAt };
     };
-    const unreachable = await timeStart({ PR_EVIDENCE_REGISTRY_URL: "http://127.0.0.1:9" });
+    const answering = await runStartAndTime((await startVersionRegistry(helperVersion)).env);
     const registry = await startUnresponsiveRegistry();
 
-    const unresponsive = await timeStart(registry.env);
+    const unresponsive = await runStartAndTime(registry.env);
 
     expect(unresponsive.result.exitCode).toBe(0);
     expect(unresponsive.result.json.warnings).toEqual([]);
-    // At most the 2 second timeout on top of a run that never waited for the registry, plus scheduling slack.
-    expect(unresponsive.elapsedMilliseconds).toBeLessThan(unreachable.elapsedMilliseconds + 3_000);
+    // At most the 2 second timeout on top of a run whose registry answered at once, plus scheduling slack.
+    expect(unresponsive.elapsedMilliseconds).toBeLessThan(answering.elapsedMilliseconds + 3_000);
   }, 20_000);
 
   it("adds no warning when this is the latest version", async () => {
@@ -71,4 +68,23 @@ describe("update warning", () => {
     expect(result.exitCode).toBe(0);
     expect(result.json.warnings).toEqual([]);
   });
+
+  it("does not hold up a failing start while the registry is still silent", async () => {
+    const runFailingStart = async (registryEnv: Record<string, string>) => {
+      const startedAt = performance.now();
+      const result = await runCli(["start", "--url", "http://127.0.0.1:9/"], {
+        cwd: createRepository().path,
+        home: createHome(),
+        env: registryEnv,
+      });
+      return { result, elapsedMilliseconds: performance.now() - startedAt };
+    };
+    const answering = await runFailingStart((await startVersionRegistry(helperVersion)).env);
+    const silent = await runFailingStart((await startUnresponsiveRegistry()).env);
+
+    expect(silent.result.exitCode).toBe(2);
+    expect(silent.result.json.error.code).toBe("url_unreachable");
+    // Waiting out the 2 second timeout would push this well past the run whose registry answered.
+    expect(silent.elapsedMilliseconds).toBeLessThan(answering.elapsedMilliseconds + 1_000);
+  }, 20_000);
 });

@@ -21,8 +21,8 @@ import {
   runCli,
   startTestServer,
 } from "./support/harness.js";
+import { helperVersion, npxCommand } from "./support/helperRelease.js";
 
-const helperVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const skillPaths = {
   claude: [".claude", "skills", "pr-evidence", "SKILL.md"],
   codex: [".agents", "skills", "pr-evidence", "SKILL.md"],
@@ -413,7 +413,6 @@ describe("start, for the agent", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
     expect(result.json.warnings).toContain(
       `The skill is version 0.0.0-old but the helper is ${helperVersion}. Run: ${npxCommand} pr-evidence@${helperVersion} setup`,
     );

@@ -64,11 +64,12 @@ function isNewerThanThisHelper(publishedVersion: unknown): publishedVersion is s
 }
 
 /** The latest published version when it is newer than this one, otherwise null, including when the registry did not say. */
-export async function findNewerHelperVersion(): Promise<string | null> {
+export async function findNewerHelperVersion(cancellation: AbortSignal): Promise<string | null> {
   try {
     const response = await fetch(`${registryUrl()}/pr-evidence`, {
-      signal: AbortSignal.timeout(lookupTimeoutMilliseconds),
+      signal: AbortSignal.any([cancellation, AbortSignal.timeout(lookupTimeoutMilliseconds)]),
     });
+    if (!response.ok) return null;
     const packageDocument = (await response.json()) as { "dist-tags"?: { latest?: unknown } };
     const latestVersion = packageDocument["dist-tags"]?.latest;
     return isNewerThanThisHelper(latestVersion) ? latestVersion : null;
