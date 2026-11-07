@@ -724,7 +724,8 @@ describe("app runner", () => {
     appProcessId(pidFile);
     expect(readFileSync(visibilityFile, "utf8").trim()).toBe("False");
     expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(true);
-  });
+    // The probe compiles C# with Add-Type, which can take most of a minute on a busy CI runner.
+  }, 120_000);
 
   it.runIf(isWindows)("refuses to stop an app it cannot identify, and reports it", async () => {
     const directory = createTemporaryDirectory();
