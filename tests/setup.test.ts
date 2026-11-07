@@ -106,6 +106,21 @@ describe("setup", () => {
     expect(JSON.parse(runInstalledHelper(helperPath, "--version")).version).toBe(helperVersion);
   });
 
+  it("installs the pinned browser CLI with the helper, so the installed browser command runs it", async () => {
+    const home = homeWithAgents(".claude");
+    const pinnedBrowserCliVersion = JSON.parse(
+      readFileSync("node_modules/chrome-devtools-axi/package.json", "utf8"),
+    ).version;
+
+    await runSetup(home);
+
+    const output = execFileSync(process.execPath, [helperPathIn(readSkill(home)), "browser", "--version"], {
+      cwd: createRepository().path,
+      encoding: "utf8",
+    });
+    expect(output.trim()).toBe(pinnedBrowserCliVersion);
+  });
+
   it("gives the agent one command form, with no npx helper commands and no ~/", async () => {
     const home = homeWithAgents(".claude");
 
