@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: windows-browser-smoke-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   smoke:
@@ -25,4 +25,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Show the chrome-devtools-mcp version npx will resolve
+        run: npm view chrome-devtools-mcp version
       - run: npm run test:smoke:browser

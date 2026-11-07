@@ -1,15 +1,21 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const PROCESS_LIST_MAX_BYTES = 64 * 1024 * 1024;
-const SURVIVOR_GRACE_MILLISECONDS = 5_000;
+const processListMaxBytes = 64 * 1024 * 1024;
+const survivorGraceMilliseconds = 5_000;
+const survivorPollMilliseconds = 250;
+const appReadyTimeoutMilliseconds = 10_000;
+const appReadyPollMilliseconds = 100;
+// The first run downloads chrome-devtools-mcp inside this window, and the default is 30 seconds.
+const bridgeStartTimeoutMilliseconds = 180_000;
 const sampleAppPath = fileURLToPath(new URL("./app.mjs", import.meta.url));
 const browserPackagePath = createRequire(import.meta.url).resolve("chrome-devtools-axi/package.json");
 const browserPackageDirectory = dirname(browserPackagePath);
@@ -29,15 +35,16 @@ export interface BrowserProcess {
 export interface BrowserSmoke {
   appUrl: string;
   workDirectory: string;
-  browser(...args: string[]): Promise<string>;
+  browser(...args: string[]): Promise<void>;
   trackBrowserProcesses(): Promise<BrowserProcess[]>;
-  findSurvivors(): Promise<BrowserProcess[]>;
+  findSurvivors(): Promise<BrowserProcess[] | null>;
   cleanUp(): Promise<void>;
 }
 
 export interface BrowserSmokeFindings {
   survivors: BrowserProcess[] | null;
   reopened: boolean | null;
+  reopenLaunchedNewChrome: boolean | null;
 }
 
 function describeSurvivors(survivors: BrowserProcess[] | null): string {
@@ -48,9 +55,9 @@ function describeSurvivors(survivors: BrowserProcess[] | null): string {
   return [...counts].map(([kind, count]) => `${kind} x${count}`).join(", ");
 }
 
-function describeReopen(reopened: boolean | null): string {
-  if (reopened === null) return "not reached";
-  return reopened ? "yes" : "no";
+function describeOutcome(outcome: boolean | null): string {
+  if (outcome === null) return "not reached";
+  return outcome ? "yes" : "no";
 }
 
 function describeCleanupNeed({ survivors, reopened }: BrowserSmokeFindings): string {
@@ -67,7 +74,8 @@ export function formatBrowserSmokeReport(findings: BrowserSmokeFindings): string
     "",
     `- chrome-devtools-axi: ${browserPackageVersion}`,
     `- Survived \`chrome-devtools-axi stop\`: ${describeSurvivors(findings.survivors)}`,
-    `- Reopened with the same profile: ${describeReopen(findings.reopened)}`,
+    `- Reopened with the same profile: ${describeOutcome(findings.reopened)}`,
+    `- Reopen launched a new Chrome: ${describeOutcome(findings.reopenLaunchedNewChrome)}`,
     `- Browser cleanup ticket needed: ${describeCleanupNeed(findings)}`,
     ...(survivorLines.length > 0 ? ["", "Surviving processes:", ...survivorLines] : []),
   ].join("\n");
@@ -86,9 +94,9 @@ async function listWindowsProcesses(): Promise<RunningProcess[]> {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine)",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
     ],
-    { encoding: "utf8", maxBuffer: PROCESS_LIST_MAX_BYTES },
+    { encoding: "utf8", maxBuffer: processListMaxBytes },
   );
   const rows = JSON.parse(stdout) as { ProcessId: number; ParentProcessId: number; CommandLine: string | null }[];
   return rows.map((row) => ({
@@ -101,7 +109,7 @@ async function listWindowsProcesses(): Promise<RunningProcess[]> {
 async function listPosixProcesses(): Promise<RunningProcess[]> {
   const { stdout } = await execFileAsync("ps", ["-axww", "-o", "pid=,ppid=,command="], {
     encoding: "utf8",
-    maxBuffer: PROCESS_LIST_MAX_BYTES,
+    maxBuffer: processListMaxBytes,
   });
   return stdout.split("\n").flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -151,6 +159,7 @@ function isolatedBrowserEnvironment(profileDirectory: string, sessionName: strin
   delete environment.CHROME_DEVTOOLS_AXI_MCP_SERVER_URL;
   environment.CHROME_DEVTOOLS_AXI_USER_DATA_DIR = profileDirectory;
   environment.CHROME_DEVTOOLS_AXI_SESSION = sessionName;
+  environment.CHROME_DEVTOOLS_AXI_BRIDGE_TIMEOUT_MS = String(bridgeStartTimeoutMilliseconds);
   return environment;
 }
 
@@ -166,19 +175,19 @@ async function findFreePort(): Promise<number> {
 }
 
 async function waitForApp(appUrl: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + appReadyTimeoutMilliseconds;
   while (Date.now() < deadline) {
     try {
       await fetch(appUrl);
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sleep(appReadyPollMilliseconds);
     }
   }
   throw new Error(`Sample app did not answer at ${appUrl}`);
 }
 
-function stopProcessTree(processId: number): Promise<unknown> {
+function forceStopProcess(processId: number): Promise<unknown> {
   if (process.platform === "win32") {
     return execFileAsync("taskkill", ["/PID", String(processId), "/T", "/F"]).catch(() => undefined);
   }
@@ -191,7 +200,8 @@ function stopProcessTree(processId: number): Promise<unknown> {
 }
 
 export async function startBrowserSmoke(): Promise<BrowserSmoke> {
-  const workDirectory = mkdtempSync(join(tmpdir(), "pr-evidence-browser-smoke-"));
+  // Windows runners report a short 8.3 temp path, which is not the path Chrome reports back.
+  const workDirectory = realpathSync.native(mkdtempSync(join(tmpdir(), "pr-evidence-browser-smoke-")));
   const profileDirectory = join(workDirectory, "profile");
   const environment = isolatedBrowserEnvironment(profileDirectory, `pr-evidence-smoke-${process.pid}`);
   const port = await findFreePort();
@@ -199,7 +209,12 @@ export async function startBrowserSmoke(): Promise<BrowserSmoke> {
     stdio: "ignore",
   });
   const appUrl = `http://127.0.0.1:${port}/`;
-  await waitForApp(appUrl);
+  try {
+    await waitForApp(appUrl);
+  } catch (error) {
+    app.kill();
+    throw error;
+  }
 
   const trackedProcesses = new Map<number, BrowserProcess>();
 
@@ -227,22 +242,20 @@ export async function startBrowserSmoke(): Promise<BrowserSmoke> {
     );
   }
 
-  async function findSurvivors(): Promise<BrowserProcess[]> {
-    const deadline = Date.now() + SURVIVOR_GRACE_MILLISECONDS;
+  // Null means nothing was ever tracked, so there is no finding, rather than a clean stop.
+  async function findSurvivors(): Promise<BrowserProcess[] | null> {
+    if (trackedProcesses.size === 0) return null;
+    const deadline = Date.now() + survivorGraceMilliseconds;
     let survivors = await listSurvivors();
     while (survivors.length > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await sleep(survivorPollMilliseconds);
       survivors = await listSurvivors();
     }
     return survivors;
   }
 
-  async function browser(...args: string[]): Promise<string> {
-    const { stdout } = await execFileAsync(process.execPath, [browserCliPath, ...args], {
-      env: environment,
-      encoding: "utf8",
-    });
-    return stdout;
+  async function browser(...args: string[]): Promise<void> {
+    await execFileAsync(process.execPath, [browserCliPath, ...args], { env: environment });
   }
 
   return {
@@ -251,12 +264,22 @@ export async function startBrowserSmoke(): Promise<BrowserSmoke> {
     browser,
     trackBrowserProcesses,
     findSurvivors,
+    // Best effort: leftovers are a finding, so tidying up must never fail the job.
     async cleanUp() {
-      await trackBrowserProcesses();
-      await browser("stop").catch(() => undefined);
-      await Promise.all((await findSurvivors()).map(({ processId }) => stopProcessTree(processId)));
-      app.kill();
-      rmSync(workDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+      try {
+        await trackBrowserProcesses();
+        await browser("stop").catch(() => undefined);
+        await Promise.all(((await findSurvivors()) ?? []).map(({ processId }) => forceStopProcess(processId)));
+      } catch (error) {
+        console.warn("Browser smoke cleanup failed", error);
+      } finally {
+        app.kill();
+        try {
+          rmSync(workDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+        } catch (error) {
+          console.warn("Could not remove the browser smoke directory", error);
+        }
+      }
     },
   };
 }
