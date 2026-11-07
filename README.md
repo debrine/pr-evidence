@@ -133,7 +133,7 @@ npm run typecheck
 
 To try a checkout, run `npm ci` and `npm run build`, then `node /absolute/path/to/pr-evidence/dist/cli.js setup`. Run helper commands from the Git repository being tested. The installed skill invokes `npx`, so it always uses the published release.
 
-The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly.
+The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly. `npm run test:smoke:browser` drives real `chrome-devtools-axi` and real Chrome, and runs as the Windows smoke job in CI.
 
 ## Releasing
 

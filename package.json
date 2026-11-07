@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:smoke": "vitest run --config vitest.smoke.config.ts",
+    "test:smoke:browser": "vitest run --config vitest.browserSmoke.config.ts",
     "prepack": "npm run build"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/pngjs": "^6.0.5",
+    "chrome-devtools-axi": "0.1.46",
     "gifuct-js": "^2.1.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
