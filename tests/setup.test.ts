@@ -371,6 +371,19 @@ describe("setup", () => {
     ]);
     expect(result.stderr).toContain("chrome-devtools-axi");
   });
+
+  it.runIf(process.platform === "win32")("reports a missing sh.exe when Git for Windows has none", async () => {
+    const gitExecPath = join(createTemporaryDirectory(), "mingw64", "libexec", "git-core");
+    mkdirSync(gitExecPath, { recursive: true });
+
+    const result = await runSetup(homeWithAgents(".claude"), { ...registry.env, GIT_EXEC_PATH: gitExecPath });
+
+    expect(result.json.ready).toBe(false);
+    expect(result.json.missingPrerequisites).toEqual([
+      expect.objectContaining({ name: "sh.exe", fix: expect.stringContaining("Git for Windows") }),
+    ]);
+    expect(result.stderr).toContain("sh.exe");
+  });
 });
 
 describe("start, for the agent", () => {

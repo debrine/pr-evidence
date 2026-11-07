@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -9,12 +11,14 @@ import {
   createHome,
   createRepository,
   createTemporaryDirectory,
+  createToolShims,
   git,
   runCli,
   startTestServer,
 } from "./support/harness.js";
 
 const sampleApp = resolve("tests/support/app.mjs");
+const isWindows = process.platform === "win32";
 const startedProcessIds: number[] = [];
 
 afterEach(() => {
@@ -34,6 +38,11 @@ function isRunning(processId: number): boolean {
   }
 }
 
+/** Quotes a path for the start command, which `sh` runs. Windows paths contain backslashes. */
+function shellQuote(path: string): string {
+  return `'${path}'`;
+}
+
 /** `--import` needs a URL, because it reads a Windows drive letter as a URL scheme. */
 function importPreload(preloadPath: string): string {
   return `--import=${pathToFileURL(preloadPath).href}`;
@@ -47,9 +56,16 @@ async function freePort(): Promise<number> {
   return (address as { port: number }).port;
 }
 
-async function repositoryWithApp(startCommand: (port: number) => string) {
+/** A repository whose config starts `startCommand`, with `files` committed alongside it. */
+async function repositoryWithApp(startCommand: (port: number) => string, files: Record<string, string> = {}) {
   const port = await freePort();
   const repository = createRepository();
+  for (const [relativePath, content] of Object.entries(files)) {
+    const path = join(repository.path, relativePath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+    chmodSync(path, 0o755);
+  }
   writeFileSync(
     join(repository.path, ".pr-evidence.yml"),
     `start: ${JSON.stringify(startCommand(port))}\nreadyUrl: http://127.0.0.1:${port}/\n`,
@@ -86,14 +102,14 @@ describe("app runner", () => {
         import { syncBuiltinESMExports } from 'node:module';
         const originalRead = fs.readFileSync;
         fs.readFileSync = function (path, ...args) {
-          if (String(path).endsWith('/app.log') && fs.statSync(path).size > 64 * 1024) {
+          if (/[\\\\/]app\\.log$/.test(String(path)) && fs.statSync(path).size > 64 * 1024) {
             throw new RangeError('whole log exceeds simulated memory limit');
           }
           return originalRead.call(this, path, ...args);
         };
         syncBuiltinESMExports();
       `);
-      const { repository } = await repositoryWithApp(() => `exec ${process.execPath} ${verboseApp}`);
+      const { repository } = await repositoryWithApp(() => `exec ${shellQuote(process.execPath)} ${shellQuote(verboseApp)}`);
       const home = createHome();
       const result = await runCli(["start"], {
         cwd: repository.path, home,
@@ -117,7 +133,7 @@ describe("app runner", () => {
     const home = createHome();
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile}`,
+      (port) => `exec ${shellQuote(process.execPath)} ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
     );
     const externalApp = await startTestServer();
     const external = await runCli(["start", "--url", externalApp.url], { cwd: repository.path, home, env });
@@ -145,7 +161,7 @@ describe("app runner", () => {
     async (signal) => {
       const pidFile = join(createTemporaryDirectory(), "app.pid");
       const { repository } = await repositoryWithApp(
-        (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile} 60000`,
+        (port) => `exec ${shellQuote(process.execPath)} ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)} 60000`,
       );
       const home = createHome();
       const unrelatedApp = await startTestServer();
@@ -198,7 +214,7 @@ describe("app runner", () => {
     `);
     const pidFile = join(directory, "app.pid");
     const { repository } = await repositoryWithApp(
-      (port) => `exec ${process.execPath} ${sampleApp} ${port} ${pidFile}`,
+      (port) => `exec ${shellQuote(process.execPath)} ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
     );
     const home = createHome();
     try {
@@ -222,7 +238,7 @@ describe("app runner", () => {
       import { syncBuiltinESMExports } from 'node:module';
       const originalSpawn = childProcess.spawn;
       childProcess.spawn = function (command, ...args) {
-        return originalSpawn.call(this, command === 'sh' ? ${JSON.stringify(missingShell)} : command, ...args);
+        return originalSpawn.call(this, /(^|[\\\\/])sh(\\.exe)?$/i.test(String(command)) ? ${JSON.stringify(missingShell)} : command, ...args);
       };
       syncBuiltinESMExports();
     `);
@@ -247,7 +263,7 @@ describe("app runner", () => {
   it("starts the configured app, waits until it is ready, and stop stops it", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository, port } = await repositoryWithApp(
-      (appPort) => `node ${sampleApp} ${appPort} ${pidFile} 300`,
+      (appPort) => `node ${shellQuote(sampleApp)} ${appPort} ${shellQuote(pidFile)} 300`,
     );
     const home = createHome();
 
@@ -268,7 +284,7 @@ describe("app runner", () => {
   it("stops a whole process tree, not only the shell that launched it", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (appPort) => `sh -c 'node ${sampleApp} ${appPort} ${pidFile}; echo done'`,
+      (appPort) => `sh -c "node ${shellQuote(sampleApp)} ${appPort} ${shellQuote(pidFile)}; echo done"`,
     );
     const home = createHome();
 
@@ -292,7 +308,7 @@ describe("app runner", () => {
   it("fails with the app's output and leaves nothing running when the ready wait times out", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (appPort) => `node ${sampleApp} ${appPort} ${pidFile} 60000`,
+      (appPort) => `node ${shellQuote(sampleApp)} ${appPort} ${shellQuote(pidFile)} 60000`,
     );
 
     const result = await runCli(["start"], {
@@ -347,7 +363,7 @@ describe("app runner", () => {
   it("stops an app left over from an earlier run before starting a new one", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (appPort) => `node ${sampleApp} ${appPort} ${pidFile}`,
+      (appPort) => `node ${shellQuote(sampleApp)} ${appPort} ${shellQuote(pidFile)}`,
     );
     const home = createHome();
 
@@ -371,7 +387,7 @@ describe("app runner", () => {
     async (identityCase) => {
       const pidFile = join(createTemporaryDirectory(), "app.pid");
       const { repository } = await repositoryWithApp(
-        (port) => `node ${sampleApp} ${port} ${pidFile}`,
+        (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
       );
       const firstPath = join(createTemporaryDirectory(), "widgets");
       const secondPath = join(createTemporaryDirectory(), "widgets");
@@ -423,7 +439,7 @@ describe("app runner", () => {
       const pidFile = join(createTemporaryDirectory(), "detached.pid");
       const launcher = resolve("tests/support/detachedLauncher.mjs");
       const { repository } = await repositoryWithApp(
-        (port) => `node ${launcher} ${mode} ${port} ${pidFile}`,
+        (port) => `node ${shellQuote(launcher)} ${mode} ${port} ${shellQuote(pidFile)}`,
       );
       const home = createHome();
       const result = await runCli(["start"], {
@@ -461,7 +477,7 @@ describe("app runner", () => {
     const directory = createTemporaryDirectory();
     const pidFile = join(directory, "app.pid");
     const { repository } = await repositoryWithApp(
-      (port) => `node ${sampleApp} ${port} ${pidFile} 60000`,
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)} 60000`,
     );
     const preload = join(directory, "fail-ownership.mjs");
     writeFileSync(preload, `
@@ -469,7 +485,7 @@ describe("app runner", () => {
       import { syncBuiltinESMExports } from 'node:module';
       const originalWrite = fs.writeFileSync;
       fs.writeFileSync = function (path, data, ...options) {
-        if (String(path).endsWith('/run.json') && JSON.parse(String(data)).app) {
+        if (/[\\\\/]run\\.json$/.test(String(path)) && JSON.parse(String(data)).app) {
           const deadline = Date.now() + 3000;
           while (!fs.existsSync(${JSON.stringify(pidFile)}) && Date.now() < deadline) {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
@@ -495,7 +511,7 @@ describe("app runner", () => {
   it("clears ownership after failed startup cleanup", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (port) => `node ${sampleApp} ${port} ${pidFile} 60000`,
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)} 60000`,
     );
     const home = createHome();
     const result = await runCli(["start"], {
@@ -515,7 +531,7 @@ describe("app runner", () => {
   it("prunes expired ownership after the app exits naturally but keeps live apps", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (port) => `node ${sampleApp} ${port} ${pidFile}`,
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
     );
     const home = createHome();
     const started = await runCli(["start"], { cwd: repository.path, home });
@@ -551,7 +567,7 @@ describe("app runner", () => {
     const writeConfig = (path: string, port: number, pidFile: string) =>
       writeFileSync(
         join(path, ".pr-evidence.yml"),
-        `start: node ${sampleApp} ${port} ${pidFile}\nreadyUrl: http://127.0.0.1:${port}/\n`,
+        `start: node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}\nreadyUrl: http://127.0.0.1:${port}/\n`,
       );
     writeConfig(repository.path, firstPort, firstPidFile);
     git(repository.path, "add", ".");
@@ -576,6 +592,175 @@ describe("app runner", () => {
     expect(isRunning(firstProcessId)).toBe(false);
   });
 
+  it("passes a variable set in the start command to the app", async () => {
+    const directory = createTemporaryDirectory();
+    const pidFile = join(directory, "app.pid");
+    const environmentApp = join(directory, "environment-app.mjs");
+    writeFileSync(environmentApp, `
+      import { writeFileSync } from 'node:fs';
+      import { createServer } from 'node:http';
+      writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+      createServer((_request, response) => response.end('ok')).listen(Number(process.env.APP_PORT), '127.0.0.1');
+    `);
+    const { repository } = await repositoryWithApp((port) => `APP_PORT=${port} node ${shellQuote(environmentApp)}`);
+    const home = createHome();
+
+    const started = await runCli(["start"], { cwd: repository.path, home });
+    console.log("variable in start command CLI", JSON.stringify(started));
+
+    expect(started.exitCode).toBe(0);
+    const processId = appProcessId(pidFile);
+    const stopped = await runCli(["stop"], { cwd: repository.path, home });
+    expect(stopped.json.stopped).toBe(true);
+    expect(isRunning(processId)).toBe(false);
+  });
+
+  it("runs a wrapper script that starts apps in the background and waits, and stops all of them", async () => {
+    const secondPort = await freePort();
+    const wrapperScript = [
+      "#!/bin/sh",
+      `cd "$(dirname "$0")"`,
+      `node ${shellQuote(sampleApp)} "$1" first.pid &`,
+      `node ${shellQuote(sampleApp)} "$2" second.pid &`,
+      "wait",
+      "",
+    ].join("\n");
+    const { repository } = await repositoryWithApp(
+      (port) => `./scripts/evidence-start.sh ${port} ${secondPort}`,
+      { "scripts/evidence-start.sh": wrapperScript },
+    );
+    const home = createHome();
+
+    const started = await runCli(["start"], { cwd: repository.path, home });
+    console.log("wrapper script CLI", JSON.stringify(started));
+
+    expect(started.exitCode).toBe(0);
+    await expect.poll(() => existsSync(join(repository.path, "scripts", "second.pid"))).toBe(true);
+    const processIds = ["first.pid", "second.pid"].map((name) => appProcessId(join(repository.path, "scripts", name)));
+    expect(processIds.map(isRunning)).toEqual([true, true]);
+    const stopped = await runCli(["stop"], { cwd: repository.path, home });
+    expect(stopped.json.stopped).toBe(true);
+    expect(processIds.map(isRunning)).toEqual([false, false]);
+  });
+
+  it("does not stop a process that only reuses the app's process id", async () => {
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
+    );
+    const home = createHome();
+    const started = await runCli(["start"], { cwd: repository.path, home });
+    const processId = appProcessId(pidFile);
+    const recordPath = join(started.json.runDirectory, "run.json");
+    const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    writeFileSync(recordPath, JSON.stringify({ ...record, app: { ...record.app, processStartTime: "an earlier process" } }));
+
+    const stopped = await runCli(["stop"], { cwd: repository.path, home });
+    console.log("reused process id CLI", JSON.stringify({ record, stopped }));
+
+    expect(stopped.exitCode).toBe(0);
+    expect(stopped.json.stopped).toBe(false);
+    expect(isRunning(processId)).toBe(true);
+  });
+
+  it.runIf(isWindows)("runs the start command with Git's sh.exe, never one found on PATH", async () => {
+    const pidFile = join(createTemporaryDirectory(), "app.pid");
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
+    );
+    const home = createHome();
+    // Stand-ins that exit at once, as the WSL launcher would fail to run the app.
+    const toolShims = createToolShims({ otherTools: { sh: "", bash: "" } });
+
+    const started = await runCli(["start"], { cwd: repository.path, home, toolShims });
+    console.log("sh.exe on PATH CLI", JSON.stringify(started));
+
+    expect(started.exitCode).toBe(0);
+    appProcessId(pidFile);
+    expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(true);
+  });
+
+  it.runIf(isWindows)("reports a missing sh.exe when Git for Windows has none", async () => {
+    const gitInstall = createTemporaryDirectory();
+    const gitExecPath = join(gitInstall, "mingw64", "libexec", "git-core");
+    mkdirSync(gitExecPath, { recursive: true });
+    const { repository } = await repositoryWithApp(() => "echo should not run");
+
+    const result = await runCli(["start"], {
+      cwd: repository.path, home: createHome(), env: { GIT_EXEC_PATH: gitExecPath },
+    });
+    console.log("missing sh.exe start CLI", JSON.stringify(result));
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.error.code).toBe("missing_prerequisite");
+    expect(result.json.error.message).toContain("sh.exe");
+    expect(result.json.error.message).toContain("Git for Windows");
+  });
+
+  it.runIf(isWindows)("starts the app without showing a console window", async () => {
+    const directory = createTemporaryDirectory();
+    const pidFile = join(directory, "app.pid");
+    const visibilityFile = join(directory, "console-visible.txt");
+    const consoleProbe = join(directory, "console-probe.ps1");
+    writeFileSync(consoleProbe, [
+      "Add-Type -Namespace Probe -Name Console -MemberDefinition @'",
+      '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();',
+      '[DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr window);',
+      "'@",
+      "[Probe.Console]::IsWindowVisible([Probe.Console]::GetConsoleWindow())",
+      "",
+    ].join("\r\n"));
+    const powerShell = join(process.env.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const { repository } = await repositoryWithApp((port) => [
+      `${shellQuote(powerShell)} -NoProfile -ExecutionPolicy Bypass -File ${shellQuote(consoleProbe)} > ${shellQuote(visibilityFile)}`,
+      `exec node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
+    ].join("; "));
+    const home = createHome();
+
+    const started = await runCli(["start"], { cwd: repository.path, home });
+    console.log("console window CLI", JSON.stringify(started));
+
+    expect(started.exitCode).toBe(0);
+    appProcessId(pidFile);
+    expect(readFileSync(visibilityFile, "utf8").trim()).toBe("False");
+    expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(true);
+  });
+
+  it.runIf(isWindows)("refuses to stop an app it cannot identify, and reports it", async () => {
+    const directory = createTemporaryDirectory();
+    const pidFile = join(directory, "app.pid");
+    const preload = join(directory, "fail-identity.mjs");
+    writeFileSync(preload, `
+      import childProcess from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      const missing = ${JSON.stringify(join(directory, "missing-powershell.exe"))};
+      for (const name of ['execFileSync', 'spawnSync', 'execFile', 'spawn']) {
+        const original = childProcess[name];
+        childProcess[name] = function (command, ...args) {
+          return original.call(this, /powershell(\\.exe)?$/i.test(String(command)) ? missing : command, ...args);
+        };
+      }
+      syncBuiltinESMExports();
+    `);
+    const { repository } = await repositoryWithApp(
+      (port) => `node ${shellQuote(sampleApp)} ${port} ${shellQuote(pidFile)}`,
+    );
+    const home = createHome();
+    expect((await runCli(["start"], { cwd: repository.path, home })).exitCode).toBe(0);
+    const processId = appProcessId(pidFile);
+
+    const refused = await runCli(["stop"], {
+      cwd: repository.path, home, env: { NODE_OPTIONS: importPreload(preload) },
+    });
+    console.log("unidentified app stop CLI", JSON.stringify(refused));
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.error.code).toBe("app_not_confirmed");
+    expect(isRunning(processId)).toBe(true);
+    expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(true);
+    expect(isRunning(processId)).toBe(false);
+  });
+
   it("reports when there is no run to stop", async () => {
     const repository = createRepository();
 
@@ -590,7 +775,7 @@ describe("finish", () => {
   it("stops the app it started, even when the results are rejected", async () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
-      (appPort) => `node ${sampleApp} ${appPort} ${pidFile}`,
+      (appPort) => `node ${shellQuote(sampleApp)} ${appPort} ${shellQuote(pidFile)}`,
     );
     const home = createHome();
     await runCli(["start"], { cwd: repository.path, home });
