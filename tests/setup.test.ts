@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { startFakeGitHub } from "./support/fakeGitHub.js";
 import {
   createHome,
   createRepository,
@@ -198,10 +199,12 @@ describe("start, for the agent", () => {
   it("does not warn when the skill and helper versions match", async () => {
     const repository = createRepository();
     const app = await startTestServer();
+    const github = await startFakeGitHub();
 
     const result = await runCli(["start", "--url", app.url, "--skill-version", helperVersion], {
       cwd: repository.path,
       home: createHome(),
+      env: { PR_EVIDENCE_GITHUB_BASE_URL: github.baseUrl },
     });
 
     expect(result.json.warnings).toEqual([]);

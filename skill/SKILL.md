@@ -46,6 +46,11 @@ The `start` command must stay in the foreground: `docker compose up`, not `docke
 
 Once the developer approves the draft, write the file and ask them to commit it, or commit it yourself if they say to. If they choose a dirty run instead, pass `--allow-dirty`.
 
+If the app needs several processes or setup steps, such as Docker services, migrations and seed data before the API and front end, one foreground command may not be enough. Offer the developer these choices:
+
+- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence#apps-with-several-processes). Use this if the repo will be tested again.
+- **`--url`**, with you starting the stack yourself. The tool does not own this app, and `finish` and `stop` leave it running. When the run ends, or is abandoned, stop everything you started and tell the developer about anything you left behind, such as seeded data.
+
 ## 2. Find the ticket
 
 Check these in order and stop at the first that gives a ticket:
@@ -73,6 +78,8 @@ npx -y pr-evidence start --skill-version {{version}} [--url <url>] [--allow-dirt
 ```
 
 Show the developer any `warnings`. The output gives you `url`, `runDirectory`, `screenshotDirectory`, `login` and `browser`.
+
+If a warning says the commit is not the head of the PR, ask the developer whether to go on before testing anything, even with `--yes`. If they do not want to, run `npx -y pr-evidence stop`.
 
 If the start fails, show the error, including `appOutput` if present, and stop.
 
@@ -113,7 +120,7 @@ For each criterion, drive the app as a user would:
 
 Take a PNG screenshot after each meaningful step, into `screenshotDirectory`, named `NNN-short-description.png`. The numbers set the order of the GIF.
 
-Judge each criterion strictly from what you observed, after you observed it. Look at each screenshot you cite, to confirm it shows what you claim. If you could not test a criterion, it fails, and the note says why.
+Judge each criterion strictly from what you observed, after you observed it. Look at each screenshot you cite, to confirm it shows what you claim. In a note, state only what you directly observed in this run. Check anything you are inferring first, or leave it out. If you could not test a criterion, it fails, and the note says why.
 
 When finished, run `<prefix> chrome-devtools-axi stop`.
 

@@ -45,6 +45,25 @@ The start command must stay in the foreground, so use `docker compose up` rather
 
 Without a config, pass `--url` to test an app that is already running or a preview deployment. An existing config is still validated, and the external app is never stopped by this tool.
 
+### Apps with several processes
+
+If the app needs setup steps or more than one process, commit a wrapper script and point `start` at it, for example `start: ./scripts/evidence-start.sh`. Do the setup first, then stay in the foreground:
+
+```sh
+#!/bin/sh
+set -e
+docker compose up -d --wait # services this tool will not stop
+npm run migrate
+npm run seed
+npm run start:api &
+npm run start:web &
+wait
+```
+
+Set `readyUrl` to the part that answers last. The script has two minutes to reach it. The tool stops the script and the processes it keeps in the foreground or starts with `&`. It does not stop services that run on their own, such as those from `docker compose up -d`, so stop them with `docker compose down`. `wait` keeps the script running if only one of its processes dies, so a failure there shows up in the app rather than in `start`.
+
+For a one-off run, start the stack yourself and pass `--url`. You then own the app and stop it afterwards.
+
 ## Use it
 
 Ask your agent, for example:
@@ -74,6 +93,7 @@ The tool never uses your day-to-day browser profile.
 - Use local or seeded data, not production.
 - Files uploaded to a private repo need repository access to view.
 - Publishing requires repository write access and an OAuth or personal access token from `gh`. GitHub App and Actions tokens are refused. For Enterprise Cloud, log in with `gh auth login --hostname <host>`.
+- `start` warns if the commit is not the head of the open PR for the branch, or if it could not check, so you can stop before testing.
 - Push the tested commit first. Publishing refuses a commit that is not on GitHub, before uploading anything.
 - If the commit is on GitHub but is not the PR head, the evidence is still posted, with the warning "The PR head differs from the tested commit".
 - PRs from forks are not found.
@@ -114,3 +134,11 @@ npm run typecheck
 ```
 
 The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly.
+
+## Releasing
+
+After `npm publish`, the registry can list the new version before its tarball is available. Until it is, `npx` fails with `could not determine executable to run`, and the tarball URL returns 404. For `0.1.0` this took about 8 minutes. Wait for this to succeed before testing the release:
+
+```sh
+curl -fsI "$(npm view pr-evidence@<version> dist.tarball)"
+```

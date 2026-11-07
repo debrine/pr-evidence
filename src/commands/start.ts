@@ -11,10 +11,10 @@ import {
   screenshotDirectoryOf,
   writeRunRecord,
 } from "../evidenceStore.js";
-import { describeUnsupportedHost } from "../github.js";
+import { describeUnsupportedHost, GitHubClient, readUploadToken } from "../github.js";
 import { helperVersion } from "../packageInfo.js";
 import { checkBrowserCli, checkGitHubCli } from "../prerequisites.js";
-import { readRepoState, type RepoState } from "../repoState.js";
+import { readRepoState, type RepoState, type RepositoryIdentity } from "../repoState.js";
 import { stopLatestRunApp } from "./stop.js";
 
 export interface StartOptions {
@@ -48,10 +48,34 @@ function describeBrowser(repositoryKey: string) {
   };
 }
 
-function collectWarnings(repoState: RepoState, skillVersion: string | undefined): string[] {
+/** Why this commit may not be what the open PR shows, or null when nothing suggests that. */
+async function describePullRequestHeadProblem(
+  repository: RepositoryIdentity,
+  branch: string | null,
+  sha: string,
+): Promise<string | null> {
+  if (branch === null) {
+    return null;
+  }
+  try {
+    const github = new GitHubClient(repository, readUploadToken(repository.host));
+    const pullRequest = await github.findOpenPullRequest(branch);
+    return pullRequest === null || pullRequest.headSha === sha
+      ? null
+      : `The commit under test ${sha} is not the head of PR #${pullRequest.number} (${pullRequest.headSha}). Push it, or check out the PR head, before testing. Publishing refuses a commit that is not on GitHub, and posts any other commit with a warning.`;
+  } catch (error) {
+    return `Could not compare this commit with the open PR. ${(error as Error).message}`;
+  }
+}
+
+async function collectWarnings(
+  repoState: RepoState,
+  skillVersion: string | undefined,
+): Promise<string[]> {
   const warnings: string[] = [];
-  const hostProblem = repoState.repository && describeUnsupportedHost(repoState.repository.host);
-  if (repoState.repository === null) {
+  const { repository, branch, sha } = repoState;
+  const hostProblem = repository && describeUnsupportedHost(repository.host);
+  if (repository === null) {
     warnings.push("The origin remote is not a GitHub repository, so publishing will fail.");
   } else if (hostProblem) {
     warnings.push(`Publishing will fail. ${hostProblem}`);
@@ -59,6 +83,12 @@ function collectWarnings(repoState: RepoState, skillVersion: string | undefined)
   const missingGitHubCli = checkGitHubCli();
   if (missingGitHubCli !== null) {
     warnings.push(`Publishing will fail. ${missingGitHubCli.fix}`);
+  }
+  if (repository !== null && hostProblem === null && missingGitHubCli === null) {
+    const headProblem = await describePullRequestHeadProblem(repository, branch, sha);
+    if (headProblem !== null) {
+      warnings.push(headProblem);
+    }
   }
   if (skillVersion !== undefined && skillVersion !== helperVersion) {
     warnings.push(
@@ -139,6 +169,6 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     login: config?.login ?? null,
     ticketFolder: config?.ticketFolder ?? null,
     browser: describeBrowser(repoState.repositoryKey),
-    warnings: collectWarnings(repoState, options.skillVersion),
+    warnings: await collectWarnings(repoState, options.skillVersion),
   };
 }
