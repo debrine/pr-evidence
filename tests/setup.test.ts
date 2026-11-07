@@ -368,40 +368,35 @@ describe("setup", () => {
     expect(result.json.missingPrerequisites).toEqual([]);
   });
 
-  it("names each missing prerequisite and how to fix it", async () => {
+  it("names each missing prerequisite and how to fix it, and installs chrome-devtools-axi itself", async () => {
     const result = await runCli(["setup"], {
       cwd: createTemporaryDirectory(),
       home: homeWithAgents(".claude"),
       env: registry.env,
-      toolShims: createToolShims({ ghToken: null, browserCli: false }),
+      toolShims: createToolShims({ ghToken: null }),
     });
 
     expect(result.json.ready).toBe(false);
     expect(result.json.missingPrerequisites).toEqual([
       expect.objectContaining({ name: "gh", fix: expect.stringContaining("gh auth login") }),
-      expect.objectContaining({
-        name: "chrome-devtools-axi",
-        fix: expect.stringContaining("npm install -g chrome-devtools-axi"),
-      }),
     ]);
-    expect(result.stderr).toContain("chrome-devtools-axi");
+    expect(result.stderr).toContain("gh auth login");
+    expect(result.stderr).not.toContain("chrome-devtools-axi");
   });
 });
 
 describe("start, for the agent", () => {
-  it("refuses to start without the browser tool", async () => {
+  it("starts without chrome-devtools-axi on PATH, because the helper brings its own", async () => {
     const repository = createRepository();
     const app = await startTestServer();
 
     const result = await runCli(["start", "--url", app.url], {
       cwd: repository.path,
       home: createHome(),
-      toolShims: createToolShims({ browserCli: false }),
     });
 
-    expect(result.exitCode).toBe(2);
-    expect(result.json.error.code).toBe("missing_prerequisite");
-    expect(result.json.error.message).toContain("chrome-devtools-axi");
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings.join(" ")).not.toContain("chrome-devtools-axi");
   });
 
   it("warns, without failing, when gh is missing", async () => {
@@ -418,7 +413,7 @@ describe("start, for the agent", () => {
     expect(result.json.warnings.join(" ")).toContain("gh auth login");
   });
 
-  it("gives a browser command that uses a dedicated profile and can never attach to the user's Chrome", async () => {
+  it("names the dedicated browser profile, and leaves driving the browser to the browser command", async () => {
     const repository = createRepository();
     const app = await startTestServer();
     const home = createHome();
@@ -426,11 +421,7 @@ describe("start, for the agent", () => {
     const result = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
 
     const profile = join(dirname(result.json.runDirectory), "browser-profile");
-    expect(result.json.browser.profileDirectory).toBe(profile);
-    expect(result.json.browser.commandPrefix).toContain(`CHROME_DEVTOOLS_AXI_USER_DATA_DIR='${profile}'`);
-    expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_AUTO_CONNECT");
-    expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_BROWSER_URL");
-    expect(result.json.browser.commandPrefix).toContain("-u CHROME_DEVTOOLS_AXI_MCP_SERVER_URL");
+    expect(result.json.browser).toEqual({ profileDirectory: profile });
   });
 
   it("warns at the start of a run when evidence could never be published", async () => {

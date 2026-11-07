@@ -23,12 +23,6 @@ export function checkGitHubCli(): MissingPrerequisite | null {
       };
 }
 
-export function checkBrowserCli(): MissingPrerequisite | null {
-  return succeeds("chrome-devtools-axi", ["--version"])
-    ? null
-    : { name: "chrome-devtools-axi", fix: "Run: npm install -g chrome-devtools-axi" };
-}
-
 export function findMissingPrerequisites(): MissingPrerequisite[] {
-  return [checkGitHubCli(), checkBrowserCli()].filter((missing) => missing !== null);
+  return [checkGitHubCli()].filter((missing) => missing !== null);
 }

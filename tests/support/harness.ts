@@ -126,12 +126,11 @@ function writePosixToolShims(directory: string, toolOutputs: Record<string, stri
 }
 
 /** A directory of stand-ins for the external CLIs the helper shells out to. */
-export function createToolShims(options: { ghToken?: string | null; browserCli?: boolean } = {}): string {
+export function createToolShims(options: { ghToken?: string | null } = {}): string {
   const directory = createTemporaryDirectory();
   const ghToken = options.ghToken === undefined ? "gho_testtoken" : options.ghToken;
   const toolOutputs: Record<string, string> = {};
   if (ghToken !== null) toolOutputs.gh = `${ghToken}\n`;
-  if (options.browserCli !== false) toolOutputs["chrome-devtools-axi"] = "";
   (isWindows ? writeWindowsToolShims : writePosixToolShims)(directory, toolOutputs);
   return directory;
 }

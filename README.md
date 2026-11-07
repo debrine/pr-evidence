@@ -24,7 +24,7 @@ This installs the skill at user level for each agent it finds, and tells you if 
 
 Use `--agent claude`, `--agent codex` or `--agent cursor` to choose instead.
 
-You need Node 20 or later, npm, Git, a Unix environment with `sh`, `ps` and process group signals, the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`, and `chrome-devtools-axi` (`npm install -g chrome-devtools-axi`). You do not need ffmpeg or ImageMagick.
+You need Node 20 or later, npm, Git, a Unix environment with `sh`, `ps` and process group signals, and the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`. `setup` installs a pinned `chrome-devtools-axi` with the helper, so you do not install it yourself. You do not need ffmpeg or ImageMagick.
 
 ## Configure a repo
 
