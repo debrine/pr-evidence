@@ -2,13 +2,14 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  cliEnvironment,
   createHome,
   createRepository,
   createTemporaryDirectory,
   git,
-  homeEnvironment,
   runCli,
   startTestServer,
 } from "./support/harness.js";
@@ -91,7 +92,7 @@ describe("app runner", () => {
       const home = createHome();
       const result = await runCli(["start"], {
         cwd: repository.path, home,
-        env: { NODE_OPTIONS: `--import=${preload}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" },
+        env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" },
       });
       console.log("bounded log tail CLI", JSON.stringify({ failure, result }));
       const processId = appProcessId(pidFile);
@@ -107,7 +108,7 @@ describe("app runner", () => {
   it("probes external and configured apps without newer Node cancellation APIs", async () => {
     const preload = join(createTemporaryDirectory(), "node20-cancellation.mjs");
     writeFileSync(preload, "AbortSignal.any = undefined;\n");
-    const env = { NODE_OPTIONS: `--import=${preload}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" };
+    const env = { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" };
     const home = createHome();
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
@@ -145,12 +146,7 @@ describe("app runner", () => {
       const unrelatedApp = await startTestServer();
       const child = spawn(process.execPath, [resolve("dist/cli.js"), "start"], {
         cwd: repository.path,
-        env: {
-          ...process.env,
-          ...homeEnvironment(home),
-          PR_EVIDENCE_GITHUB_BASE_URL: "http://127.0.0.1:9",
-          PR_EVIDENCE_READY_TIMEOUT_MS: "10000",
-        },
+        env: cliEnvironment({ home, env: { PR_EVIDENCE_READY_TIMEOUT_MS: "10000" } }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";
@@ -201,7 +197,7 @@ describe("app runner", () => {
     const home = createHome();
     try {
       const result = await runCli(["start"], {
-        cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${preload}` },
+        cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
       });
       appProcessId(pidFile);
       expect(result.exitCode).toBe(0);
@@ -228,7 +224,7 @@ describe("app runner", () => {
     const home = createHome();
 
     const result = await runCli(["start"], {
-      cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${preload}` },
+      cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
     });
     console.log("asynchronous spawn failure CLI", JSON.stringify(result));
 
@@ -480,7 +476,7 @@ describe("app runner", () => {
     const result = await runCli(["start"], {
       cwd: repository.path,
       home: createHome(),
-      env: { NODE_OPTIONS: `--import=${preload}` },
+      env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
     });
     console.log("ownership write failure CLI", result);
     expect(result.exitCode).toBe(2);

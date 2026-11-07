@@ -126,11 +126,6 @@ export function createToolShims(options: { ghToken?: string | null; browserCli?:
   return directory;
 }
 
-/** Node reads the home directory from HOME on POSIX and USERPROFILE on Windows. */
-export function homeEnvironment(home: string): Record<string, string> {
-  return { HOME: home, USERPROFILE: home };
-}
-
 function systemPath(): string {
   if (!isWindows) return "/usr/bin:/bin:/usr/sbin:/sbin";
   const systemRoot = process.env.SystemRoot!;
@@ -139,14 +134,30 @@ function systemPath(): string {
 }
 
 /** What a Windows process needs from its environment, plus the preload for the stand-ins. */
-function windowsEnvironment(toolShims: string): Record<string, string> {
+function windowsEnvironment(toolShims: string, nodeOptions = ""): Record<string, string> {
   // NODE_OPTIONS treats a backslash as an escape, even inside quotes.
   const preloadPath = join(toolShims, windowsToolPreloadName).replaceAll("\\", "/");
   return {
     SystemRoot: process.env.SystemRoot!,
     TEMP: tmpdir(),
     TMP: tmpdir(),
-    NODE_OPTIONS: `--require "${preloadPath}"`,
+    NODE_OPTIONS: `--require "${preloadPath}" ${nodeOptions}`.trim(),
+  };
+}
+
+/** The whole environment of a CLI run, so that nothing leaks in from the developer's machine. */
+export function cliEnvironment(
+  options: Pick<CliOptions, "home" | "env" | "toolShims">,
+): Record<string, string> {
+  const toolShims = options.toolShims ?? createToolShims();
+  return {
+    // Node reads the home directory from HOME on POSIX and USERPROFILE on Windows.
+    HOME: options.home,
+    USERPROFILE: options.home,
+    PATH: [toolShims, systemPath()].join(delimiter),
+    PR_EVIDENCE_GITHUB_BASE_URL: "http://127.0.0.1:9",
+    ...options.env,
+    ...(isWindows ? windowsEnvironment(toolShims, options.env?.NODE_OPTIONS) : {}),
   };
 }
 
@@ -167,17 +178,10 @@ export interface CliOptions {
 
 /** Runs the built CLI as a black box, in the way a skill would. */
 export function runCli(args: string[], options: CliOptions): Promise<CliResult> {
-  const toolShims = options.toolShims ?? createToolShims();
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: options.cwd,
-      env: {
-        ...homeEnvironment(options.home),
-        ...(isWindows ? windowsEnvironment(toolShims) : {}),
-        PATH: [toolShims, systemPath()].join(delimiter),
-        PR_EVIDENCE_GITHUB_BASE_URL: "http://127.0.0.1:9",
-        ...options.env,
-      },
+      env: cliEnvironment(options),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
