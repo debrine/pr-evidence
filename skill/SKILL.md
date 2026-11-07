@@ -9,7 +9,7 @@ Prove that the current branch works: agree test criteria with the developer, tes
 
 The helper CLI does the mechanical work. You derive criteria, drive the browser and judge results. Every helper command prints one JSON document. Exit code 0 means success, 1 means a criterion failed, 2 means the tool could not do what was asked; read `error.code` and `error.message`.
 
-If a helper command fails with Node's `Cannot find module` error naming the helper path, the helper is not installed. Stop and ask the developer to run `npx pr-evidence setup`, or `npx.cmd pr-evidence setup` on Windows. Do not run setup yourself.
+If a helper command fails with Node's `Cannot find module` error naming the helper path, the helper is not installed. Stop and ask the developer to run `npx pr-evidence@{{version}} setup`, or `npx.cmd pr-evidence@{{version}} setup` on Windows. Do not run setup yourself.
 
 ## Rules
 
