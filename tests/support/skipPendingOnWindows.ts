@@ -13,7 +13,7 @@ function testNamesIn(task: VitestTask): string[] {
 }
 
 // Runs on every platform, so a renamed test cannot quietly stop being skipped on Windows.
-beforeAll((_context, file) => {
+beforeAll(({}, file) => {
   const testNames = new Set(testNamesIn(file));
   const unknownTests = pendingTestsIn(file.name).filter((testName) => !testNames.has(testName));
   if (unknownTests.length > 0) {

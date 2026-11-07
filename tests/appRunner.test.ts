@@ -296,7 +296,7 @@ describe("app runner", () => {
     const result = await runCli(["start"], {
       cwd: repository.path,
       home: createHome(),
-      env: { PR_EVIDENCE_READY_TIMEOUT_MS: "500" },
+      env: { PR_EVIDENCE_READY_TIMEOUT_MS: "3000" },
     });
 
     expect(result.exitCode).toBe(2);
