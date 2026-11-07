@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { findWindowsShell, windowsShellPrerequisite } from "./processControl.js";
 
 export interface MissingPrerequisite {
   name: string;
@@ -29,6 +30,11 @@ export function checkBrowserCli(): MissingPrerequisite | null {
     : { name: "chrome-devtools-axi", fix: "Run: npm install -g chrome-devtools-axi" };
 }
 
+/** Only Windows, where the start command needs Git for Windows' sh.exe. POSIX always has `sh`. */
+function checkWindowsShell(): MissingPrerequisite | null {
+  return process.platform !== "win32" || findWindowsShell() !== null ? null : windowsShellPrerequisite;
+}
+
 export function findMissingPrerequisites(): MissingPrerequisite[] {
-  return [checkGitHubCli(), checkBrowserCli()].filter((missing) => missing !== null);
+  return [checkGitHubCli(), checkBrowserCli(), checkWindowsShell()].filter((missing) => missing !== null);
 }
