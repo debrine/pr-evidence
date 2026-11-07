@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     globalSetup: ["tests/support/buildCli.ts"],
+    setupFiles: ["tests/support/skipPendingOnWindows.ts"],
     testTimeout: 30_000,
   },
 });
