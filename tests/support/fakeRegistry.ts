@@ -10,6 +10,8 @@ interface PackedPackage {
   name: string;
   version: string;
   dependencies: Record<string, string>;
+  /** As in the package's manifest. A real registry serves it, and `npm exec` needs it to find the command. */
+  bin?: Record<string, string> | string;
   tarballPath: string;
 }
 
@@ -18,19 +20,21 @@ export interface FakeRegistry {
   env: Record<string, string>;
   /** The helper, as `npm pack` builds it for publishing. */
   helperTarballPath: string;
+  /** Stops answering, as a registry behind a failing proxy would. npm's cache stays keyed to the same URL. */
+  stop(): Promise<void>;
 }
 
 const helperPackageName = "pr-evidence";
 const openServers: Server[] = [];
 let packedPackages: { directory: string; packages: PackedPackage[] } | undefined;
 
+function stopServer(server: Server): Promise<void> {
+  server.closeAllConnections();
+  return new Promise((closed) => server.close(() => closed()));
+}
+
 afterEach(async () => {
-  await Promise.all(
-    openServers.splice(0).map((server) => {
-      server.closeAllConnections();
-      return new Promise((closed) => server.close(closed));
-    }),
-  );
+  await Promise.all(openServers.splice(0).map(stopServer));
 });
 
 afterAll(() => {
@@ -48,6 +52,7 @@ function packPackage(packageDirectory: string, destination: string): PackedPacka
     name: manifest.name,
     version: manifest.version,
     dependencies: manifest.dependencies ?? {},
+    bin: manifest.bin,
     tarballPath: join(destination, packed.trim().split(/\r?\n/).at(-1)!),
   };
 }
@@ -65,12 +70,12 @@ function packHelperAndDependencies(): PackedPackage[] {
   return packedPackages.packages;
 }
 
-function packageDocument(baseUrl: string, { name, version, dependencies }: PackedPackage): string {
+function packageDocument(baseUrl: string, { name, version, dependencies, bin }: PackedPackage): string {
   return JSON.stringify({
     name,
     "dist-tags": { latest: version },
     versions: {
-      [version]: { name, version, dependencies, dist: { tarball: `${baseUrl}/-/${name}.tgz` } },
+      [version]: { name, version, dependencies, bin, dist: { tarball: `${baseUrl}/-/${name}.tgz` } },
     },
   });
 }
@@ -100,5 +105,11 @@ export async function startFakeRegistry(options: { withoutHelper?: boolean } = {
   return {
     env: { npm_config_registry: `${baseUrl()}/`, npm_config_fetch_retries: "0" },
     helperTarballPath: allPackages.find((candidate) => candidate.name === helperPackageName)!.tarballPath,
+    stop: async () => {
+      const openIndex = openServers.indexOf(server);
+      if (openIndex === -1) return;
+      openServers.splice(openIndex, 1);
+      await stopServer(server);
+    },
   };
 }
