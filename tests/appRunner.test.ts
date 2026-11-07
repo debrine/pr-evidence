@@ -34,6 +34,11 @@ function isRunning(processId: number): boolean {
   }
 }
 
+/** `--import` needs a URL, because it reads a Windows drive letter as a URL scheme. */
+function importPreload(preloadPath: string): string {
+  return `--import=${pathToFileURL(preloadPath).href}`;
+}
+
 async function freePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((listening) => server.listen(0, "127.0.0.1", listening));
@@ -92,7 +97,7 @@ describe("app runner", () => {
       const home = createHome();
       const result = await runCli(["start"], {
         cwd: repository.path, home,
-        env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" },
+        env: { NODE_OPTIONS: importPreload(preload), PR_EVIDENCE_READY_TIMEOUT_MS: "1000" },
       });
       console.log("bounded log tail CLI", JSON.stringify({ failure, result }));
       const processId = appProcessId(pidFile);
@@ -108,7 +113,7 @@ describe("app runner", () => {
   it("probes external and configured apps without newer Node cancellation APIs", async () => {
     const preload = join(createTemporaryDirectory(), "node20-cancellation.mjs");
     writeFileSync(preload, "AbortSignal.any = undefined;\n");
-    const env = { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, PR_EVIDENCE_READY_TIMEOUT_MS: "1000" };
+    const env = { NODE_OPTIONS: importPreload(preload), PR_EVIDENCE_READY_TIMEOUT_MS: "1000" };
     const home = createHome();
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const { repository } = await repositoryWithApp(
@@ -158,6 +163,7 @@ describe("app runner", () => {
         child.on("close", (exitCode, exitSignal) => resolveClose({ exitCode, exitSignal }));
       });
       try {
+        // Matches the ready timeout, because a loaded CI runner can take seconds to boot the app.
         await expect.poll(() => existsSync(pidFile), { timeout: 10_000 }).toBe(true);
         const processId = appProcessId(pidFile);
         child.kill(signal);
@@ -197,7 +203,7 @@ describe("app runner", () => {
     const home = createHome();
     try {
       const result = await runCli(["start"], {
-        cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
+        cwd: repository.path, home, env: { NODE_OPTIONS: importPreload(preload) },
       });
       appProcessId(pidFile);
       expect(result.exitCode).toBe(0);
@@ -224,7 +230,7 @@ describe("app runner", () => {
     const home = createHome();
 
     const result = await runCli(["start"], {
-      cwd: repository.path, home, env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
+      cwd: repository.path, home, env: { NODE_OPTIONS: importPreload(preload) },
     });
     console.log("asynchronous spawn failure CLI", JSON.stringify(result));
 
@@ -292,6 +298,7 @@ describe("app runner", () => {
     const result = await runCli(["start"], {
       cwd: repository.path,
       home: createHome(),
+      // Long enough for the app to print while test files run in parallel. It never becomes ready.
       env: { PR_EVIDENCE_READY_TIMEOUT_MS: "3000" },
     });
 
@@ -476,7 +483,7 @@ describe("app runner", () => {
     const result = await runCli(["start"], {
       cwd: repository.path,
       home: createHome(),
-      env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
+      env: { NODE_OPTIONS: importPreload(preload) },
     });
     console.log("ownership write failure CLI", result);
     expect(result.exitCode).toBe(2);

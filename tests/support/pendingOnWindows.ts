@@ -2,7 +2,7 @@
  * The one list of tests that cannot pass on Windows yet, grouped by the reason.
  * A ticket that makes a test pass there removes it from this list.
  */
-export interface PendingGroup {
+interface PendingGroup {
   reason: string;
   /** Test file, relative to the repo root, mapped to the full test names in it. */
   tests: Record<string, string[]>;
@@ -10,7 +10,9 @@ export interface PendingGroup {
 
 export const pendingOnWindows: PendingGroup[] = [
   {
-    reason: "Starting and stopping the app relies on POSIX `sh`, `ps` and process groups. See #19.",
+    reason:
+      "Starting and stopping the app relies on POSIX `sh`, `ps` and process groups, and these " +
+      "tests put unquoted Windows paths in `sh` commands and match `/` in preloads. See #19.",
     tests: {
       "tests/appRunner.test.ts": [
         "app runner > returns a bounded verbose log tail and cleans up after exit",
