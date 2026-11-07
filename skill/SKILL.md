@@ -44,7 +44,7 @@ ticketFolder: docs/tickets # optional: local Markdown tickets
 
 The `start` command must stay in the foreground: `docker compose up`, not `docker compose up -d`. A command that exits makes the run fail.
 
-Once the developer approves the draft, write the file and ask them to commit it, or commit it yourself if they say to. A run refuses to start until it is committed.
+Once the developer approves the draft, write the file and ask them to commit it, or commit it yourself if they say to. If they choose a dirty run instead, pass `--allow-dirty`.
 
 ## 2. Find the ticket
 
@@ -137,7 +137,7 @@ Write `<runDirectory>/results.json`:
 npx -y pr-evidence finish --results <runDirectory>/results.json
 ```
 
-This stops the app and builds the GIF. Exit code 1 means a criterion failed. The run still produced evidence, so carry on. Do not try to fix anything. Show the developer any `warnings`.
+This stops the app and builds the GIF. Exit code 1 means a criterion failed. The run still produced evidence, so carry on. Do not try to fix anything. Show the developer any `warnings`. On exit code 2, show the error and stop before publishing.
 
 ## 8. Review
 
@@ -155,4 +155,4 @@ Report the `commentUrl` and any `warnings`.
 
 - `commit_not_on_github`: nothing was uploaded and the evidence is saved. Ask the developer to push the tested commit, then publish again. Do not push it yourself.
 - `no_pull_request`: the evidence is saved. Tell the developer to open a PR and then ask you to publish, or to run `npx -y pr-evidence publish` themselves.
-- Any other failure: show the error. The files are kept, nothing was posted, and publishing again is safe.
+- Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence#how-the-upload-works) before describing what was uploaded or posted.
