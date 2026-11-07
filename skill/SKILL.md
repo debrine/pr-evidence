@@ -74,16 +74,16 @@ Show the developer the numbered list and wait for approval. Do not start testing
 ## 4. Start the run
 
 ```sh
-npx -y pr-evidence start --skill-version {{version}} [--url <url>] [--allow-dirty]
+{{helper}} start --skill-version {{version}} [--url <url>] [--allow-dirty]
 ```
 
 Show the developer any `warnings`. The output gives you `url`, `runDirectory`, `screenshotDirectory`, `login` and `browser`.
 
-If a warning says the commit is not the head of the PR, ask the developer whether to go on before testing anything, even with `--yes`. If they do not want to, run `npx -y pr-evidence stop`.
+If a warning says the commit is not the head of the PR, ask the developer whether to go on before testing anything, even with `--yes`. If they do not want to, run `{{helper}} stop`.
 
 If the start fails, show the error, including `appOutput` if present, and stop.
 
-**From here on, if you have to abandon the run, run `npx -y pr-evidence stop`** so no app is left running.
+**From here on, if you have to abandon the run, run `{{helper}} stop`** so no app is left running.
 
 ## 5. Log in, if the app needs it
 
@@ -141,7 +141,7 @@ Write `<runDirectory>/results.json`:
 `ticket` is `null` if none was used. `screenshot` is a file name from `screenshotDirectory`, and every failed criterion that has a relevant screenshot should name it. Then:
 
 ```sh
-npx -y pr-evidence finish --results <runDirectory>/results.json
+{{helper}} finish --results <runDirectory>/results.json
 ```
 
 This stops the app and builds the GIF. Exit code 1 means a criterion failed. The run still produced evidence, so carry on. Do not try to fix anything. Show the developer any `warnings`. On exit code 2, show the error and stop before publishing.
@@ -155,11 +155,11 @@ If they decline, stop. The evidence stays in `runDirectory`.
 ## 9. Publish
 
 ```sh
-npx -y pr-evidence publish
+{{helper}} publish
 ```
 
 Report the `commentUrl` and any `warnings`.
 
 - `commit_not_on_github`: nothing was uploaded and the evidence is saved. Ask the developer to push the tested commit, then publish again. Do not push it yourself.
-- `no_pull_request`: the evidence is saved. Tell the developer to open a PR and then ask you to publish, or to run `npx -y pr-evidence publish` themselves.
+- `no_pull_request`: the evidence is saved. Tell the developer to open a PR and then ask you to publish, or to run `{{helper}} publish` themselves.
 - Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence#how-the-upload-works) before describing what was uploaded or posted.

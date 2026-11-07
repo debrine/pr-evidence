@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { CliError } from "../errors.js";
+import { installHelper, removeOldHelperVersions } from "../helperInstall.js";
 import { helperVersion, readSkillTemplate } from "../packageInfo.js";
 import { findMissingPrerequisites } from "../prerequisites.js";
 
@@ -41,18 +42,24 @@ function chooseAgents(requestedNames: string[]): Agent[] {
 }
 
 export function setup(requestedAgentNames: string[]): Record<string, unknown> {
-  const skill = readSkillTemplate().replaceAll("{{version}}", helperVersion);
-  const installed = chooseAgents(requestedAgentNames).map((agent) => {
+  const chosenAgents = chooseAgents(requestedAgentNames);
+  const helperPath = installHelper();
+  const skill = readSkillTemplate()
+    .replaceAll("{{version}}", helperVersion)
+    // A function, because a `$` in the home directory would otherwise be read as a replacement pattern.
+    .replaceAll("{{helper}}", () => `node "${helperPath}"`);
+  const installed = chosenAgents.map((agent) => {
     const path = join(homedir(), agent.skillsDirectory, "pr-evidence", "SKILL.md");
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, skill);
     process.stderr.write(`Installed the skill for ${agent.name}: ${path}\n`);
     return { agent: agent.name, path };
   });
+  removeOldHelperVersions();
 
   const missingPrerequisites = findMissingPrerequisites();
   for (const { name, fix } of missingPrerequisites) {
     process.stderr.write(`Missing ${name}. ${fix}\n`);
   }
-  return { installed, ready: missingPrerequisites.length === 0, missingPrerequisites };
+  return { helperPath, installed, ready: missingPrerequisites.length === 0, missingPrerequisites };
 }
