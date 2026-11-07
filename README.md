@@ -14,8 +14,6 @@ Web apps only, on github.com and `*.ghe.com`. macOS and Linux.
 npx pr-evidence setup
 ```
 
-The `npx` examples require a published release containing these changes. Until then, build this checkout with `npm ci` and `npm run build`, then use `node /absolute/path/to/pr-evidence/dist/cli.js setup`. For helper commands, run that CLI from the Git repository being tested. The installed skill also invokes `npx`, so using it requires the published release.
-
 This installs the skill at user level for each agent it finds, and tells you if a prerequisite is missing:
 
 | Agent | Skill location |
@@ -132,6 +130,8 @@ npm install
 npm test
 npm run typecheck
 ```
+
+To try a checkout, run `npm ci` and `npm run build`, then `node /absolute/path/to/pr-evidence/dist/cli.js setup`. Run helper commands from the Git repository being tested. The installed skill invokes `npx`, so it always uses the published release.
 
 The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly.
 
