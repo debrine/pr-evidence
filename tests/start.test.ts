@@ -2,7 +2,15 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createHome, createRepository, git, runCli, startTestServer } from "./support/harness.js";
+import { startFakeGitHub, type FakeGitHubOptions } from "./support/fakeGitHub.js";
+import {
+  createHome,
+  createRepository,
+  createToolShims,
+  git,
+  runCli,
+  startTestServer,
+} from "./support/harness.js";
 
 describe("start", () => {
   it("returns a valid, deterministic browser session per repository", async () => {
@@ -127,5 +135,112 @@ describe("start", () => {
 
     expect(result.exitCode).toBe(2);
     expect(result.json.error.code).toBe("url_unreachable");
+  });
+});
+
+describe("start, comparing the commit with the open PR", () => {
+  const branch = "feature/login";
+  const remoteHeadSha = "f".repeat(40);
+
+  async function startWithGitHub(
+    fakeGitHubOptions: (headSha: string) => FakeGitHubOptions,
+    prepare: (repositoryPath: string) => void = () => {},
+  ) {
+    const repository = createRepository({ branch });
+    const github = await startFakeGitHub(fakeGitHubOptions(repository.headSha));
+    const app = await startTestServer();
+    prepare(repository.path);
+    const result = await runCli(["start", "--url", app.url], {
+      cwd: repository.path,
+      home: createHome(),
+      env: { PR_EVIDENCE_GITHUB_BASE_URL: github.baseUrl },
+    });
+    return { repository, result };
+  }
+
+  it("warns before testing when the commit is not the head of the open PR", async () => {
+    const { repository, result } = await startWithGitHub(() => ({
+      pullRequests: [{ number: 7, branch, headSha: remoteHeadSha }],
+    }));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings).toHaveLength(1);
+    expect(result.json.warnings[0]).toContain(repository.headSha);
+    expect(result.json.warnings[0]).toContain("PR #7");
+    expect(result.json.warnings[0]).toContain(remoteHeadSha);
+  });
+
+  it("stays quiet when the commit is the head of the open PR", async () => {
+    const { result } = await startWithGitHub((headSha) => ({
+      pullRequests: [{ number: 7, branch, headSha }],
+    }));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings).toEqual([]);
+  });
+
+  it("stays quiet when the branch has no open PR yet", async () => {
+    const { result } = await startWithGitHub(() => ({ pullRequests: [] }));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings).toEqual([]);
+  });
+
+  it("does not look for a PR from a detached commit", async () => {
+    const { result } = await startWithGitHub(
+      () => ({ pullRequests: [{ number: 7, branch, headSha: remoteHeadSha }] }),
+      (repositoryPath) => git(repositoryPath, "checkout", "-q", "--detach"),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.branch).toBeNull();
+    expect(result.json.warnings).toEqual([]);
+  });
+
+  it("still starts, and says so, when GitHub cannot be reached", async () => {
+    const repository = createRepository({ branch });
+    const app = await startTestServer();
+
+    const result = await runCli(["start", "--url", app.url], {
+      cwd: repository.path,
+      home: createHome(),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings).toHaveLength(1);
+    expect(result.json.warnings[0]).toContain("Could not compare this commit with the open PR");
+  });
+
+  it("still starts, and says so, when gh has a token GitHub refuses for uploads", async () => {
+    const repository = createRepository({ branch });
+    const app = await startTestServer();
+
+    const result = await runCli(["start", "--url", app.url], {
+      cwd: repository.path,
+      home: createHome(),
+      toolShims: createToolShims({ ghToken: "ghs_apptoken" }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings.join(" ")).toContain("Could not compare this commit with the open PR");
+    expect(result.json.warnings.join(" ")).toContain("gh auth login");
+  });
+
+  it.each([
+    ["gh is missing", null, undefined, "gh auth login"],
+    ["the host is unsupported", undefined, "git@git.example.com:acme/widgets.git", "not supported"],
+  ])("gives only the publishing warning when %s", async (_case, ghToken, remoteUrl, expected) => {
+    const repository = createRepository({ branch, remoteUrl });
+    const app = await startTestServer();
+
+    const result = await runCli(["start", "--url", app.url], {
+      cwd: repository.path,
+      home: createHome(),
+      toolShims: createToolShims({ ghToken }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.warnings).toHaveLength(1);
+    expect(result.json.warnings[0]).toContain(expected);
   });
 });
