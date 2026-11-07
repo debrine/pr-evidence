@@ -173,6 +173,12 @@ export function cliEnvironment(
   };
 }
 
+export interface CliOutput {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface CliResult {
   exitCode: number;
   stderr: string;
@@ -188,8 +194,8 @@ export interface CliOptions {
   toolShims?: string;
 }
 
-/** Runs the built CLI as a black box, in the way a skill would. */
-export function runCli(args: string[], options: CliOptions): Promise<CliResult> {
+/** Runs the built CLI as a black box, in the way a skill would, and returns its raw output. */
+export function runCliForOutput(args: string[], options: CliOptions): Promise<CliOutput> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: options.cwd,
@@ -201,17 +207,18 @@ export function runCli(args: string[], options: CliOptions): Promise<CliResult> 
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("error", reject);
-    child.on("close", (exitCode) => {
-      let json: unknown = null;
-      try {
-        json = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`stdout was not JSON (exit ${exitCode}): ${stdout}\n${stderr}`));
-        return;
-      }
-      resolvePromise({ exitCode: exitCode ?? -1, stderr, json });
-    });
+    child.on("close", (exitCode) => resolvePromise({ exitCode: exitCode ?? -1, stdout, stderr }));
   });
+}
+
+/** Runs a command of the built CLI that prints one JSON document, and parses it. */
+export async function runCli(args: string[], options: CliOptions): Promise<CliResult> {
+  const { exitCode, stdout, stderr } = await runCliForOutput(args, options);
+  try {
+    return { exitCode, stderr, json: JSON.parse(stdout) };
+  } catch {
+    throw new Error(`stdout was not JSON (exit ${exitCode}): ${stdout}\n${stderr}`);
+  }
 }
 
 export function createHome(): string {
