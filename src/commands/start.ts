@@ -34,7 +34,7 @@ function shellQuote(value: string): string {
  */
 function describeBrowser(repositoryKey: string) {
   const profileDirectory = browserProfileDirectoryOf(repositoryKey);
-  const sessionName = `pr-evidence-${repositoryKey.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+  const sessionName = `pr-evidence-${repositoryKey.replace(/[^A-Za-z0-9_-]/g, "-")}`.slice(0, 64);
   return {
     profileDirectory,
     commandPrefix: [
