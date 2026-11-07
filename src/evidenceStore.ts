@@ -48,7 +48,7 @@ export interface Run {
   record: RunRecord;
 }
 
-function evidenceRoot(): string {
+export function evidenceRoot(): string {
   return join(homedir(), ".pr-evidence");
 }
 

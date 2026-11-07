@@ -81,6 +81,7 @@ export async function startFakeRegistry(options: { withoutHelper?: boolean } = {
   const served = allPackages.filter(
     (candidate) => !options.withoutHelper || candidate.name !== helperPackageName,
   );
+  const baseUrl = () => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const server = createServer((request, response) => {
     const packageName = decodeURIComponent(request.url!).replace(/^\/(-\/)?/, "").replace(/\.tgz$/, "");
     const requested = served.find((candidate) => candidate.name === packageName);
@@ -89,17 +90,15 @@ export async function startFakeRegistry(options: { withoutHelper?: boolean } = {
     } else if (request.url!.startsWith("/-/")) {
       response.end(readFileSync(requested.tarballPath));
     } else {
-      const { port } = server.address() as AddressInfo;
       response
         .writeHead(200, { "content-type": "application/json" })
-        .end(packageDocument(`http://127.0.0.1:${port}`, requested));
+        .end(packageDocument(baseUrl(), requested));
     }
   });
   openServers.push(server);
   await new Promise<void>((listening) => server.listen(0, "127.0.0.1", listening));
-  const { port } = server.address() as AddressInfo;
   return {
-    env: { npm_config_registry: `http://127.0.0.1:${port}/`, npm_config_fetch_retries: "0" },
-    helperTarballPath: allPackages[0]!.tarballPath,
+    env: { npm_config_registry: `${baseUrl()}/`, npm_config_fetch_retries: "0" },
+    helperTarballPath: allPackages.find((candidate) => candidate.name === helperPackageName)!.tarballPath,
   };
 }

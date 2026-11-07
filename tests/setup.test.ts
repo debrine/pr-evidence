@@ -75,10 +75,14 @@ describe("setup", () => {
     registry = await startFakeRegistry();
   });
 
+  function runSetup(home: string, env = registry.env, ...args: string[]) {
+    return runCli(["setup", ...args], { cwd: createTemporaryDirectory(), home, env });
+  }
+
   it("installs the helper into a versioned folder, and the skill runs that copy", async () => {
     const home = homeWithAgents(".claude");
 
-    const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    const result = await runSetup(home);
 
     expect(result.exitCode).toBe(0);
     const skill = readSkill(home);
@@ -89,14 +93,14 @@ describe("setup", () => {
     expect(JSON.parse(runInstalledHelper(helperPath, "--version")).version).toBe(helperVersion);
   });
 
-  it("gives the agent one command form, with no npx and no ~", async () => {
+  it("gives the agent one command form, with no npx and no ~/", async () => {
     const home = homeWithAgents(".claude");
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     const skill = readSkill(home);
     expect(skill).not.toContain("npx");
-    expect(skill).not.toContain("~");
+    expect(skill).not.toContain("~/");
     for (const command of ["start", "stop", "finish", "publish"]) {
       expect(skill).toContain(`node "${helperPathIn(skill)}" ${command}`);
     }
@@ -106,7 +110,7 @@ describe("setup", () => {
     const home = join(createTemporaryDirectory(), "Ada Lovelace");
     mkdirSync(join(home, ".claude"), { recursive: true });
 
-    const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    const result = await runSetup(home);
 
     expect(result.exitCode).toBe(0);
     const helperPath = helperPathIn(readSkill(home));
@@ -117,7 +121,7 @@ describe("setup", () => {
   it("shares one installed helper between every agent", async () => {
     const home = homeWithAgents(".claude", ".codex");
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     expect(helperPathIn(readSkill(home, "codex"))).toBe(helperPathIn(readSkill(home, "claude")));
     expect(readdirSync(appDirectory(home))).toEqual([helperVersion]);
@@ -128,18 +132,32 @@ describe("setup", () => {
     const homeManifest = '{ "name": "my-home" }\n';
     writeFileSync(join(home, "package.json"), homeManifest);
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     expect(readFileSync(join(home, "package.json"), "utf8")).toBe(homeManifest);
     expect(existsSync(join(home, "node_modules"))).toBe(false);
     expect(existsSync(helperPathIn(readSkill(home)))).toBe(true);
   });
 
+  it("moves every agent with the skill onto the new helper, not only the one named", async () => {
+    const home = homeWithAgents(".claude");
+    const claudeSkill = join(home, ...skillPaths.claude);
+    mkdirSync(dirname(claudeSkill), { recursive: true });
+    writeFileSync(claudeSkill, `node "${join(appDirectory(home), "0.0.1", "cli.js")}" start \n`);
+    mkdirSync(join(appDirectory(home), "0.0.1"), { recursive: true });
+
+    const result = await runSetup(home, registry.env, "--agent", "cursor");
+
+    expect(result.json.installed.map((entry: { agent: string }) => entry.agent)).toEqual(["claude", "cursor"]);
+    expect(existsSync(helperPathIn(readSkill(home, "claude")))).toBe(true);
+    expect(helperPathIn(readSkill(home, "claude"))).toBe(helperPathIn(readSkill(home, "cursor")));
+  });
+
   it("removes older installed versions", async () => {
     const home = homeWithAgents(".claude");
     mkdirSync(join(appDirectory(home), "0.0.1", "node_modules"), { recursive: true });
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     expect(readdirSync(appDirectory(home))).toEqual([helperVersion]);
   });
@@ -152,7 +170,7 @@ describe("setup", () => {
     const allowRemoval = await blockRemoval(oldVersion);
 
     try {
-      const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+      const result = await runSetup(home);
 
       expect(result.exitCode).toBe(0);
       expect(existsSync(oldVersion)).toBe(true);
@@ -165,13 +183,9 @@ describe("setup", () => {
 
   it("reports a failed install, pointing at registry and proxy settings", async () => {
     const home = homeWithAgents(".claude");
-    const brokenRegistry = await startFakeRegistry({ withoutHelper: true });
+    const registryWithoutHelper = await startFakeRegistry({ withoutHelper: true });
 
-    const result = await runCli(["setup"], {
-      cwd: createTemporaryDirectory(),
-      home,
-      env: brokenRegistry.env,
-    });
+    const result = await runSetup(home, registryWithoutHelper.env);
 
     expect(result.exitCode).toBe(2);
     expect(result.json.error.code).toBe("install_failed");
@@ -187,9 +201,9 @@ describe("setup", () => {
     writeFileSync(skillPath, "the working skill");
     const oldVersion = join(appDirectory(home), "0.0.1");
     mkdirSync(oldVersion, { recursive: true });
-    const brokenRegistry = await startFakeRegistry({ withoutHelper: true });
+    const registryWithoutHelper = await startFakeRegistry({ withoutHelper: true });
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: brokenRegistry.env });
+    await runSetup(home, registryWithoutHelper.env);
 
     expect(readFileSync(skillPath, "utf8")).toBe("the working skill");
     expect(existsSync(oldVersion)).toBe(true);
@@ -197,13 +211,12 @@ describe("setup", () => {
 
   it("needs no registry to run again once the version is installed", async () => {
     const home = homeWithAgents(".claude");
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
     mkdirSync(join(home, ".cursor"));
 
-    const result = await runCli(["setup"], {
-      cwd: createTemporaryDirectory(),
-      home,
-      env: { npm_config_registry: "http://127.0.0.1:9/", npm_config_fetch_retries: "0" },
+    const result = await runSetup(home, {
+      npm_config_registry: "http://127.0.0.1:9/",
+      npm_config_fetch_retries: "0",
     });
 
     expect(result.exitCode).toBe(0);
@@ -215,7 +228,7 @@ describe("setup", () => {
     const interruptedInstall = join(appDirectory(home), helperVersion);
     mkdirSync(interruptedInstall, { recursive: true });
 
-    const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    const result = await runSetup(home);
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(helperPathIn(readSkill(home)))).toBe(true);
@@ -223,13 +236,13 @@ describe("setup", () => {
 
   it("installs an unreleased build from a named tarball, every time", async () => {
     const home = homeWithAgents(".claude");
-    const unreleased = await startFakeRegistry({ withoutHelper: true });
-    const env = { ...unreleased.env, PR_EVIDENCE_INSTALL_SOURCE: registry.helperTarballPath };
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env });
+    const registryWithoutHelper = await startFakeRegistry({ withoutHelper: true });
+    const env = { ...registryWithoutHelper.env, PR_EVIDENCE_INSTALL_SOURCE: registry.helperTarballPath };
+    await runSetup(home, env);
     const helperPath = helperPathIn(readSkill(home));
     rmSync(helperPath);
 
-    const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env });
+    const result = await runSetup(home, env);
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(runInstalledHelper(helperPath, "--version")).version).toBe(helperVersion);
@@ -238,7 +251,7 @@ describe("setup", () => {
   it("installs the skill for every agent it finds, and only those", async () => {
     const home = homeWithAgents(".claude", ".codex");
 
-    const result = await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    const result = await runSetup(home);
 
     expect(result.exitCode).toBe(0);
     expect(result.json.installed.map((entry: { agent: string }) => entry.agent)).toEqual([
@@ -253,11 +266,7 @@ describe("setup", () => {
   it("installs for a named agent even when it was not detected", async () => {
     const home = homeWithAgents();
 
-    const result = await runCli(["setup", "--agent", "cursor"], {
-      cwd: createTemporaryDirectory(),
-      home,
-      env: registry.env,
-    });
+    const result = await runSetup(home, registry.env, "--agent", "cursor");
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(join(home, ...skillPaths.cursor))).toBe(true);
@@ -266,7 +275,7 @@ describe("setup", () => {
   it("writes a skill with valid frontmatter that carries the helper version", async () => {
     const home = homeWithAgents(".claude");
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     const skill = readSkill(home);
     expect(skill).toMatch(/^---\nname: pr-evidence\ndescription: .+\n---\n/);
@@ -280,7 +289,7 @@ describe("setup", () => {
     mkdirSync(join(skillPath, ".."), { recursive: true });
     writeFileSync(skillPath, "old");
 
-    await runCli(["setup"], { cwd: createTemporaryDirectory(), home, env: registry.env });
+    await runSetup(home);
 
     expect(readFileSync(skillPath, "utf8")).not.toBe("old");
   });

@@ -41,6 +41,10 @@ function chooseAgents(requestedNames: string[]): Agent[] {
   return detected;
 }
 
+function skillPathOf(agent: Agent): string {
+  return join(homedir(), agent.skillsDirectory, "pr-evidence", "SKILL.md");
+}
+
 export function setup(requestedAgentNames: string[]): Record<string, unknown> {
   const chosenAgents = chooseAgents(requestedAgentNames);
   const helperPath = installHelper();
@@ -48,8 +52,12 @@ export function setup(requestedAgentNames: string[]): Record<string, unknown> {
     .replaceAll("{{version}}", helperVersion)
     // A function, because a `$` in the home directory would otherwise be read as a replacement pattern.
     .replaceAll("{{helper}}", () => `node "${helperPath}"`);
-  const installed = chosenAgents.map((agent) => {
-    const path = join(homedir(), agent.skillsDirectory, "pr-evidence", "SKILL.md");
+  // Every existing skill moves too, because removing old versions would otherwise strand it.
+  const agentsToUpdate = agents.filter(
+    (agent) => chosenAgents.includes(agent) || existsSync(skillPathOf(agent)),
+  );
+  const installed = agentsToUpdate.map((agent) => {
+    const path = skillPathOf(agent);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, skill);
     process.stderr.write(`Installed the skill for ${agent.name}: ${path}\n`);

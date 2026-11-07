@@ -1,15 +1,15 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { CliError } from "./errors.js";
+import { evidenceRoot } from "./evidenceStore.js";
 import { helperVersion } from "./packageInfo.js";
 
 /** Written last, because an interrupted `npm install` can leave the CLI without its dependencies. */
 const installCompleteMarker = ".install-complete";
 
 function appDirectory(): string {
-  return join(homedir(), ".pr-evidence", "app");
+  return join(evidenceRoot(), "app");
 }
 
 function runNpmInstall(versionDirectory: string, packageSource: string): void {
@@ -36,10 +36,13 @@ function runNpmInstall(versionDirectory: string, packageSource: string): void {
 /** Installs this exact version, if it is not there yet, and returns the path of its CLI. */
 export function installHelper(): string {
   const versionDirectory = join(appDirectory(), helperVersion);
-  // For trying an unreleased build, whose version number says nothing about its contents.
-  const unreleasedBuild = process.env.PR_EVIDENCE_INSTALL_SOURCE;
-  if (unreleasedBuild !== undefined || !existsSync(join(versionDirectory, installCompleteMarker))) {
-    runNpmInstall(versionDirectory, unreleasedBuild ?? `pr-evidence@${helperVersion}`);
+  const packageSourceOverride = process.env.PR_EVIDENCE_INSTALL_SOURCE;
+  if (packageSourceOverride !== undefined) {
+    // An unreleased build's version says nothing about its contents, and npm would keep the old copy.
+    rmSync(versionDirectory, { recursive: true, force: true });
+  }
+  if (!existsSync(join(versionDirectory, installCompleteMarker))) {
+    runNpmInstall(versionDirectory, packageSourceOverride ?? `pr-evidence@${helperVersion}`);
   }
   return join(versionDirectory, "node_modules", "pr-evidence", "dist", "cli.js");
 }
