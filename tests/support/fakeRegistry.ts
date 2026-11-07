@@ -113,3 +113,35 @@ export async function startFakeRegistry(options: { withoutHelper?: boolean } = {
     },
   };
 }
+
+export interface FakeVersionRegistry {
+  /** Points the update check at this registry. */
+  env: Record<string, string>;
+}
+
+async function listenForVersionLookups(server: Server): Promise<FakeVersionRegistry> {
+  openServers.push(server);
+  await new Promise<void>((listening) => server.listen(0, "127.0.0.1", listening));
+  return {
+    env: { PR_EVIDENCE_REGISTRY_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` },
+  };
+}
+
+/** A registry that only answers which helper version is the latest, without packing anything. */
+export function startVersionRegistry(latestHelperVersion: string): Promise<FakeVersionRegistry> {
+  const server = createServer((request, response) => {
+    if (decodeURIComponent(request.url!) !== `/${helperPackageName}`) {
+      response.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify({ name: helperPackageName, "dist-tags": { latest: latestHelperVersion } }));
+  });
+  return listenForVersionLookups(server);
+}
+
+/** A registry that accepts the connection and never answers, like one behind a stalled proxy. */
+export function startUnresponsiveRegistry(): Promise<FakeVersionRegistry> {
+  return listenForVersionLookups(createServer(() => {}));
+}
