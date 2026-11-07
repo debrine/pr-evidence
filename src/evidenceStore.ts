@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { isAppRunning, type AppProcess } from "./appRunner.js";
+import { isProcessRunning, type ProcessIdentity } from "./processControl.js";
 import { CliError } from "./errors.js";
 import type { RepoState } from "./repoState.js";
 
@@ -35,7 +35,7 @@ export interface RunRecord extends RepoState {
   url: string;
   createdAt: string;
   /** Present only while an app this tool started may still be running. */
-  app?: AppProcess;
+  app?: ProcessIdentity;
   /** Present once the run has been finished. */
   outcome?: RunOutcome;
 }
@@ -139,7 +139,7 @@ export function readRunRecord(runDirectory: string): RunRecord | null {
 function hasRunningApp(runDirectory: string): boolean {
   try {
     const app = readRunRecord(runDirectory)?.app;
-    return app !== undefined && isAppRunning(app);
+    return app !== undefined && isProcessRunning(app);
   } catch {
     return false;
   }

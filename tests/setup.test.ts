@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { exec, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   chmodSync,
@@ -10,10 +10,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 import { startFakeGitHub } from "./support/fakeGitHub.js";
 import { startFakeRegistry, type FakeRegistry } from "./support/fakeRegistry.js";
 import {
+  cliEnvironment,
   createHome,
   createRepository,
   createTemporaryDirectory,
@@ -23,6 +25,7 @@ import {
 } from "./support/harness.js";
 import { helperVersion, npxCommand } from "./support/helperRelease.js";
 
+const runInShell = promisify(exec);
 const skillPaths = {
   claude: [".claude", "skills", "pr-evidence", "SKILL.md"],
   codex: [".agents", "skills", "pr-evidence", "SKILL.md"],
@@ -51,6 +54,16 @@ function readSkill(home: string, agent: keyof typeof skillPaths = "claude"): str
 /** The path in the command the skill gives the agent to start a run. */
 function helperPathIn(skill: string): string {
   return /^node "(.+)" start /m.exec(skill)![1]!;
+}
+
+/** Runs the published helper through npx, as a developer first does, which fills npm's cache for this home. */
+async function runHelperWithNpx(home: string, env: Record<string, string>): Promise<void> {
+  // Asynchronous, so that the fake registry in this process can answer. Through a shell,
+  // because on Windows npm is a .cmd file, which Node cannot run without one.
+  await runInShell(`npm exec --yes --package=pr-evidence@${helperVersion} -- pr-evidence --version`, {
+    cwd: createTemporaryDirectory(),
+    env: cliEnvironment({ home, env }),
+  });
 }
 
 function runInstalledHelper(helperPath: string, ...args: string[]): string {
@@ -93,16 +106,16 @@ describe("setup", () => {
     expect(JSON.parse(runInstalledHelper(helperPath, "--version")).version).toBe(helperVersion);
   });
 
-  it("gives the agent one command form, with no npx and no ~/", async () => {
+  it("gives the agent one command form, with no npx helper commands and no ~/", async () => {
     const home = homeWithAgents(".claude");
 
     await runSetup(home);
 
     const skill = readSkill(home);
-    expect(skill).not.toContain("npx");
     expect(skill).not.toContain("~/");
     for (const command of ["start", "stop", "finish", "publish"]) {
       expect(skill).toContain(`node "${helperPathIn(skill)}" ${command}`);
+      expect(skill).not.toContain(`npx pr-evidence ${command}`);
     }
   });
 
@@ -221,6 +234,21 @@ describe("setup", () => {
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(join(home, ...skillPaths.cursor))).toBe(true);
+  });
+
+  it("installs from the copy npx cached, when the registry is no longer reachable", async () => {
+    const home = homeWithAgents(".claude");
+    await runHelperWithNpx(home, registry.env);
+    expect(existsSync(appDirectory(home))).toBe(false);
+    await registry.stop();
+
+    const result = await runSetup(home);
+
+    expect(result.json.error).toBeUndefined();
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(runInstalledHelper(helperPathIn(readSkill(home)), "--version")).version).toBe(
+      helperVersion,
+    );
   });
 
   it("finishes an install that was interrupted", async () => {
