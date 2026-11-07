@@ -81,6 +81,9 @@ async function blockRemoval(directory: string): Promise<() => void> {
   return () => holder.kill();
 }
 
+/** Installing the real chrome-devtools-axi tree takes most of a minute on Windows, so only these tests do it. */
+const realBrowserCliTimeout = 180_000;
+
 describe("setup", () => {
   let registry: FakeRegistry;
 
@@ -111,15 +114,16 @@ describe("setup", () => {
     const pinnedBrowserCliVersion = JSON.parse(
       readFileSync("node_modules/chrome-devtools-axi/package.json", "utf8"),
     ).version;
+    const realRegistry = await startFakeRegistry({ browserCli: "real" });
 
-    await runSetup(home);
+    await runSetup(home, realRegistry.env);
 
     const output = execFileSync(process.execPath, [helperPathIn(readSkill(home)), "browser", "--version"], {
       cwd: createRepository().path,
       encoding: "utf8",
     });
     expect(output.trim()).toBe(pinnedBrowserCliVersion);
-  });
+  }, realBrowserCliTimeout);
 
   it("gives the agent one command form, with no npx helper commands and no ~/", async () => {
     const home = homeWithAgents(".claude");
@@ -253,18 +257,20 @@ describe("setup", () => {
 
   it("installs from the copy npx cached, when the registry is no longer reachable", async () => {
     const home = homeWithAgents(".claude");
-    await runHelperWithNpx(home, registry.env);
+    // The real tree, because npm only failed this way once the tree was large.
+    const realRegistry = await startFakeRegistry({ browserCli: "real" });
+    await runHelperWithNpx(home, realRegistry.env);
     expect(existsSync(appDirectory(home))).toBe(false);
-    await registry.stop();
+    await realRegistry.stop();
 
-    const result = await runSetup(home);
+    const result = await runSetup(home, realRegistry.env);
 
     expect(result.json.error).toBeUndefined();
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(runInstalledHelper(helperPathIn(readSkill(home)), "--version")).version).toBe(
       helperVersion,
     );
-  });
+  }, realBrowserCliTimeout);
 
   it("finishes an install that was interrupted", async () => {
     const home = homeWithAgents(".claude");
