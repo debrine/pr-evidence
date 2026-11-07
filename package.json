@@ -1,6 +1,6 @@
 {
   "name": "pr-evidence",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Test a branch in a real browser and post screenshots and GIFs as evidence on its PR.",
   "license": "MIT",
   "repository": {
