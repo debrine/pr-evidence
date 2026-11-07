@@ -15,6 +15,7 @@ import { describeUnsupportedHost, GitHubClient, readUploadToken } from "../githu
 import { helperVersion } from "../packageInfo.js";
 import { checkBrowserCli, checkGitHubCli } from "../prerequisites.js";
 import { readRepoState, type RepoState, type RepositoryIdentity } from "../repoState.js";
+import { describeSetupCommand, findNewerHelperVersion } from "../updateCheck.js";
 import { stopLatestRunApp } from "./stop.js";
 
 export interface StartOptions {
@@ -71,6 +72,7 @@ async function describePullRequestHeadProblem(
 async function collectWarnings(
   repoState: RepoState,
   skillVersion: string | undefined,
+  newerHelperVersion: Promise<string | null>,
 ): Promise<string[]> {
   const warnings: string[] = [];
   const { repository, branch, sha } = repoState;
@@ -92,7 +94,13 @@ async function collectWarnings(
   }
   if (skillVersion !== undefined && skillVersion !== helperVersion) {
     warnings.push(
-      `The skill is version ${skillVersion} but the helper is ${helperVersion}. Run: npx pr-evidence setup`,
+      `The skill is version ${skillVersion} but the helper is ${helperVersion}. Run: ${describeSetupCommand(helperVersion)}`,
+    );
+  }
+  const newerVersion = await newerHelperVersion;
+  if (newerVersion !== null) {
+    warnings.push(
+      `pr-evidence ${newerVersion} is available, and this is ${helperVersion}. Run: ${describeSetupCommand(newerVersion)}`,
     );
   }
   return warnings;
@@ -151,6 +159,8 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     );
   }
 
+  // Looked up while the app starts, so that a slow registry adds as little as possible to the run.
+  const newerHelperVersion = findNewerHelperVersion();
   assertRunAvailable(repoState);
   await stopLatestRunApp(repoState);
   pruneExpiredRuns();
@@ -169,6 +179,6 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     login: config?.login ?? null,
     ticketFolder: config?.ticketFolder ?? null,
     browser: describeBrowser(repoState.repositoryKey),
-    warnings: await collectWarnings(repoState, options.skillVersion),
+    warnings: await collectWarnings(repoState, options.skillVersion, newerHelperVersion),
   };
 }

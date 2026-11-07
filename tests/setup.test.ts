@@ -403,7 +403,7 @@ describe("start, for the agent", () => {
     expect(result.json.warnings.join(" ")).toMatch(/Enterprise Server/);
   });
 
-  it("warns when the skill and helper versions differ", async () => {
+  it("warns when the skill and helper versions differ, naming the setup command for this helper", async () => {
     const repository = createRepository();
     const app = await startTestServer();
 
@@ -413,7 +413,10 @@ describe("start, for the agent", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.json.warnings.join(" ")).toMatch(/npx pr-evidence setup/);
+    const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+    expect(result.json.warnings).toContain(
+      `The skill is version 0.0.0-old but the helper is ${helperVersion}. Run: ${npxCommand} pr-evidence@${helperVersion} setup`,
+    );
   });
 
   it("does not warn when the skill and helper versions match", async () => {
