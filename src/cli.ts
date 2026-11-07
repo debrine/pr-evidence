@@ -16,7 +16,7 @@ const commands = [
   { usage: "start [--url <url>] [--allow-dirty] [--skill-version <version>]", description: "Begin a run for the current commit, starting the configured app unless --url is given." },
   { usage: "finish --results <file>", description: "Stop the app, record the results and build the GIF. Exits 1 if a criterion failed." },
   { usage: "stop", description: "Abandon a run, stopping any app it started." },
-  { usage: "publish", description: "Upload the latest finished run and update the evidence comment on its PR." },
+  { usage: "publish", description: "Prefer the checked-out commit's finished run, otherwise use this checkout's latest run, which must be finished; upload it and update the evidence comment on its PR." },
 ];
 
 function print(document: Record<string, unknown>): void {
