@@ -15,6 +15,7 @@ const defaultReadyTimeoutMilliseconds = 120_000;
 const readyPollMilliseconds = 250;
 const probeTimeoutMilliseconds = 2_000;
 const stopGraceMilliseconds = 5_000;
+const stopPollMilliseconds = 50;
 const appOutputCharacters = 4_000;
 
 function readyTimeoutMilliseconds(): number {
@@ -133,7 +134,7 @@ export async function startApp(
     onStarted: (app: AppProcess) => void;
     onStopped: () => void;
   },
-): Promise<AppProcess> {
+): Promise<void> {
   const logDescriptor = openSync(options.logPath, "a");
   const child = spawn("sh", ["-c", command], {
     cwd: options.cwd,
@@ -162,7 +163,6 @@ export async function startApp(
     await waitUntilReady(options.readyUrl, child, options.logPath, cancellation.signal);
     cancellation.signal.throwIfAborted();
     child.unref();
-    return app;
   } catch (error) {
     if (app) {
       await stopApp(app);
@@ -195,7 +195,7 @@ export async function stopApp(app: AppProcess): Promise<boolean> {
     if (!isProcessGroupAlive(app.processId)) {
       return true;
     }
-    await sleep(50);
+    await sleep(stopPollMilliseconds);
   }
   process.kill(-app.processId, "SIGKILL");
   return true;

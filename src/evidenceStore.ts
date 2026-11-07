@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isAppRunning, type AppProcess } from "./appRunner.js";
+import { CliError } from "./errors.js";
 import type { RepoState } from "./repoState.js";
 
 export interface CriterionResult {
@@ -39,15 +41,30 @@ export interface RunRecord extends RepoState {
 }
 
 const runFileName = "run.json";
-const latestRunFileName = "latest-run";
 const retentionMilliseconds = 14 * 24 * 60 * 60 * 1000;
+
+export interface Run {
+  directory: string;
+  record: RunRecord;
+}
 
 function evidenceRoot(): string {
   return join(homedir(), ".pr-evidence");
 }
 
+/** One pointer per checkout, so runs in separate worktrees of a repo stay apart. */
+function latestRunPointerPath(repositoryKey: string, rootPath: string): string {
+  const checkoutId = createHash("sha256").update(rootPath).digest("hex").slice(0, 12);
+  return join(evidenceRoot(), repositoryKey, `latest-run-${checkoutId}`);
+}
+
 function runDirectoryFor(repositoryKey: string, sha: string): string {
   return join(evidenceRoot(), repositoryKey, sha);
+}
+
+/** Kept per repo, so a login for one app is never available to another. */
+export function browserProfileDirectoryOf(repositoryKey: string): string {
+  return join(evidenceRoot(), repositoryKey, "browser-profile");
 }
 
 export function screenshotDirectoryOf(runDirectory: string): string {
@@ -58,13 +75,29 @@ export function writeRunRecord(runDirectory: string, record: RunRecord): void {
   writeFileSync(join(runDirectory, runFileName), `${JSON.stringify(record, null, 2)}\n`);
 }
 
+export function assertRunAvailable(repoState: RepoState): void {
+  const existing = findRunForCommit(repoState.repositoryKey, repoState.sha);
+  if (
+    existing !== null &&
+    existing.record.rootPath !== repoState.rootPath &&
+    existing.record.outcome === undefined
+  ) {
+    throw new CliError(
+      "run_checkout_conflict",
+      `Another checkout (${existing.record.rootPath}) has an unfinished run at ${repoState.sha}. Finish that run before starting this commit here.`,
+    );
+  }
+}
+
 /** Starts a fresh run. A rerun of the same commit replaces the earlier evidence. */
-export function createRun(record: RunRecord): string {
+export function createRun(repoState: RepoState, url: string): string {
+  assertRunAvailable(repoState);
+  const record = { ...repoState, url, createdAt: new Date().toISOString() };
   const runDirectory = runDirectoryFor(record.repositoryKey, record.sha);
   rmSync(runDirectory, { recursive: true, force: true });
   mkdirSync(screenshotDirectoryOf(runDirectory), { recursive: true });
   writeRunRecord(runDirectory, record);
-  writeFileSync(join(evidenceRoot(), record.repositoryKey, latestRunFileName), record.sha);
+  writeFileSync(latestRunPointerPath(record.repositoryKey, record.rootPath), record.sha);
   return runDirectory;
 }
 
@@ -83,14 +116,19 @@ export function appLogPathOf(runDirectory: string): string {
   return join(runDirectory, "app.log");
 }
 
-/** The directory of the most recent run for this repo, if it still exists. */
-export function findLatestRun(repositoryKey: string): string | null {
-  const pointerPath = join(evidenceRoot(), repositoryKey, latestRunFileName);
-  if (!existsSync(pointerPath)) {
-    return null;
-  }
-  const runDirectory = runDirectoryFor(repositoryKey, readFileSync(pointerPath, "utf8").trim());
-  return existsSync(join(runDirectory, runFileName)) ? runDirectory : null;
+export function findRunForCommit(repositoryKey: string, sha: string): Run | null {
+  const directory = runDirectoryFor(repositoryKey, sha);
+  const record = readRunRecord(directory);
+  return record === null ? null : { directory, record };
+}
+
+/** The most recent run from this checkout, if it still exists. */
+export function findLatestRun({ repositoryKey, rootPath }: RepoState): Run | null {
+  const pointerPath = latestRunPointerPath(repositoryKey, rootPath);
+  const run = existsSync(pointerPath)
+    ? findRunForCommit(repositoryKey, readFileSync(pointerPath, "utf8").trim())
+    : null;
+  return run?.record.rootPath === rootPath ? run : null;
 }
 
 export function readRunRecord(runDirectory: string): RunRecord | null {

@@ -205,6 +205,23 @@ describe("publish", () => {
     expect(github.comments[0]!.body).not.toContain("uncommitted changes");
   });
 
+  it("publishes the checked-out commit's run even when a later run exists on another branch", async () => {
+    const { repository, github, context } = await finishedRun({
+      fakeGitHubOptions: (headSha) => ({ pullRequests: [{ number: 7, branch, headSha }] }),
+    });
+    const app = await startTestServer();
+    git(repository.path, "checkout", "-q", "-b", "other-work");
+    git(repository.path, "commit", "-q", "--allow-empty", "-m", "other work");
+    await runCli(["start", "--url", app.url], context);
+    git(repository.path, "checkout", "-q", branch);
+
+    const published = await runCli(["publish"], context);
+
+    expect(published.exitCode).toBe(0);
+    expect(published.json.pullRequest.number).toBe(7);
+    expect(github.comments[0]!.body).toContain(repository.headSha);
+  });
+
   it("warns in neutral words when the tested commit is on GitHub but is not the PR head", async () => {
     const { github, context } = await finishedRun({
       fakeGitHubOptions: (headSha) => ({

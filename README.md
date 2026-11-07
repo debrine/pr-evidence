@@ -1,98 +1,116 @@
 # pr-evidence
 
-In development. This branch provides `start`, `stop`, and `finish` to manage a test run, record criterion results, and build a GIF from captured screenshots, plus `publish` to upload evidence and maintain a PR comment. Browser automation, `setup`, and the skill are deferred.
+Test a branch in a real browser and post screenshots and a GIF as evidence on its pull request.
 
-## Usage
+You ask your coding agent to gather evidence. It works out what to test from the diff, the PR description and the ticket, and you approve the list. It then drives a real browser against your running app and judges each criterion. You review the evidence, and one comment on the PR is created or updated.
 
-Requires Node.js 20 or later, npm, Git, and a Unix environment with `sh`, `ps`, and process group signals. From this checkout:
+The tool only reports. It never changes the code under test.
+
+Web apps only, on github.com and `*.ghe.com`. macOS and Linux.
+
+## Install
 
 ```sh
-npm ci
-npm run build
+npx pr-evidence setup
 ```
 
-Run the built CLI from inside the Git repository being tested, which must have at least one commit. Replace `/path/to/pr-evidence` below with the absolute path to this checkout.
+The `npx` examples require a published release containing these changes. Until then, build this checkout with `npm ci` and `npm run build`, then use `node /absolute/path/to/pr-evidence/dist/cli.js setup`. For helper commands, run that CLI from the Git repository being tested. The installed skill also invokes `npx`, so using it requires the published release.
 
-Commit a `.pr-evidence.yml` at the tested repository's root, using your app's command and URL:
+This installs the skill at user level for each agent it finds, and tells you if a prerequisite is missing:
+
+| Agent | Skill location |
+| --- | --- |
+| Claude Code | `~/.claude/skills/pr-evidence` |
+| Codex | `~/.agents/skills/pr-evidence` |
+| Cursor | `~/.cursor/skills/pr-evidence` |
+
+Use `--agent claude`, `--agent codex` or `--agent cursor` to choose instead.
+
+You need Node 20 or later, npm, Git, a Unix environment with `sh`, `ps` and process group signals, the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`, and `chrome-devtools-axi` (`npm install -g chrome-devtools-axi`). You do not need ffmpeg or ImageMagick.
+
+## Configure a repo
+
+Commit a `.pr-evidence.yml`. Your agent offers to draft it the first time.
 
 ```yaml
-start: npm run dev
-readyUrl: http://localhost:3000
+start: npm run dev # starts the app
+readyUrl: http://localhost:3000 # answers once the app is up
+login: # optional: names of env vars, never the values
+  usernameEnv: APP_TEST_USER
+  passwordEnv: APP_TEST_PASSWORD
+ticketFolder: docs/tickets # optional: local Markdown tickets
 ```
+
+The start command must stay in the foreground, so use `docker compose up` rather than `docker compose up -d`. If it exits during startup, even with status 0, `start` fails. An app it leaves running in the background is not tracked or stopped.
+
+Without a config, pass `--url` to test an app that is already running or a preview deployment. An existing config is still validated, and the external app is never stopped by this tool.
+
+## Use it
+
+Ask your agent, for example:
+
+> Gather evidence for this branch.
+
+> Gather evidence for ABC-123 with --criteria "Saving twice does not create a duplicate".
+
+| Option | Effect |
+| --- | --- |
+| `--ticket <path or key>` | Use this ticket |
+| `--criteria "<text>"` | Add a criterion (repeatable) |
+| `--criteria-file <path>` | Add criteria from a file |
+| `--url <url>` | Test an app that is already running |
+| `--allow-dirty` | Run with uncommitted changes. The evidence is marked |
+| `--yes` | Skip the review before publishing |
+
+## Logging in
+
+By default you log in once by hand, in a browser profile kept for this tool, and runs reuse that session. MFA and SSO work, and the agent never sees your password. For simple apps, test credentials can come from the env vars named in the config instead.
+
+The tool never uses your day-to-day browser profile.
+
+## Before you publish
+
+- GitHub offers no supported way to delete an uploaded file, so check the screenshots before you approve them.
+- Use local or seeded data, not production.
+- Files uploaded to a private repo need repository access to view.
+- Publishing requires repository write access and an OAuth or personal access token from `gh`. GitHub App and Actions tokens are refused. For Enterprise Cloud, log in with `gh auth login --hostname <host>`.
+- Push the tested commit first. Publishing refuses a commit that is not on GitHub, before uploading anything.
+- If the commit is on GitHub but is not the PR head, the evidence is still posted, with the warning "The PR head differs from the tested commit".
+- PRs from forks are not found.
+- Each person who publishes on a PR gets their own evidence comment, so nobody can edit another person's evidence.
+
+Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/`. On `start`, runs whose records have not changed in 14 days are pruned, except those with a live app owned by this tool. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, the evidence is kept subject to that retention rule. After opening a PR, run `npx pr-evidence publish`: it prefers a finished run for the checked-out commit, otherwise selects this checkout's latest run, which must be finished. It finds the PR using the selected run's saved branch and origin repository.
+
+To test two branches at once, use separate `git worktree` checkouts. Their apps and runs stay apart when testing different commits. The same commit can have only one unfinished run across checkouts: start exits 2 without changing evidence if another checkout owns that run. Finish it in its owning checkout first; starting the commit elsewhere then replaces its evidence. Stop and finish ignore runs owned by another checkout. Worktrees share a saved browser profile, so run the browser steps one at a time.
+
+## Helper commands
+
+The skill runs these for you. Each prints one JSON document. The exit code is 0 for success, 1 when a criterion failed and 2 when the tool itself failed.
+
+| Command | Purpose |
+| --- | --- |
+| `setup` | Install the skill and check prerequisites |
+| `start` | Begin a run for the current commit |
+| `finish --results <file>` | Stop the app, record results and build the GIF |
+| `stop` | Abandon a run |
+| `publish` | Publish saved evidence as described above |
+
+`finish` reports GIF encoding or size-limit failures as warnings and keeps the results and screenshots, with `gifPath: null`. Review those warnings before publishing.
+
+## How the upload works
+
+GitHub has no documented API for this. The upload uses the endpoint behind the comment box, authenticated with your `gh` token, so it could change without notice. `npm run test:smoke` checks it with one real upload, which cannot be deleted afterwards.
+
+PNG and GIF uploads must be nonempty and at most 10 MiB each. All files are uploaded before the PR comment is changed. If a later upload fails, earlier uploaded assets may remain even though the comment is untouched. A comment request failure can leave publication uncertain; inspect the PR before retrying.
+
+The upload contract follows [no-mistakes](https://github.com/kunchenguid/no-mistakes) (MIT).
+
+## Development
 
 ```sh
-node /path/to/pr-evidence/dist/cli.js start
-node /path/to/pr-evidence/dist/cli.js stop
+npm install
+npm test
+npm run typecheck
 ```
 
-`start` requires a clean working tree, including untracked files and submodule changes, regardless of Git display preferences. Use `start --allow-dirty` for a quick check; its output and run record mark the run as dirty.
-
-The configured command runs from the tested repository's root. It must stay in the foreground. An exit observed during startup, including status zero, fails with a foreground-command error. Detached processes left behind by unsupported launchers are outside this tool's ownership and must be cleaned up separately. After `start` returns, there is no ongoing supervisor to report later command exits.
-
-Startup waits up to two minutes for an HTTP response below 500 from `readyUrl`; redirects are not followed. An existing response at that URL prevents launching over another app. Failed startup stops the owned process group and reports recent app output. `PR_EVIDENCE_READY_TIMEOUT_MS` is a test-only timeout override.
-
-During pending startup, `SIGINT` or `SIGTERM` stops the owned process group, clears its ownership record, and returns an `app_interrupted` JSON error. These temporary signal handlers are removed when startup completes.
-
-To use an already running app without taking ownership of it:
-
-```sh
-node /path/to/pr-evidence/dist/cli.js start --url http://localhost:3000
-```
-
-This mode requires an HTTP response, including an error status. It needs no config file, but an existing config is still validated. `stop` never stops the external app. Each `start` first stops the app owned by the repository's previous run; `stop` also targets only that latest owned run.
-
-All commands print JSON with `ok`. A successful `start` includes the commit SHA, branch, dirty flag, URL, run and screenshot directories, and optional login and ticket metadata. A successful `stop` includes `stopped`. Tool errors exit with status 2 and include an `error` with a stable `code` and a human-readable `message`.
-
-## Finish a run
-
-Save PNG screenshots in the directory returned by `start`, using sortable names such as `001-loaded.png` and `002-saved.png`. Write a results JSON file with a nonempty `criteria` array:
-
-```json
-{
-  "ticket": "ABC-1",
-  "criteria": [
-    { "description": "Page loads", "result": "pass", "screenshot": "001-loaded.png" },
-    { "description": "Save succeeds", "result": "fail", "note": "Server returned 500" }
-  ]
-}
-```
-
-Each criterion requires a nonempty `description` and a `result` of `pass` or `fail`. Optional `screenshot` names a captured PNG file in that run, without a directory path; optional `note` is a string. The top-level `ticket` is an optional string or null.
-
-```sh
-node /path/to/pr-evidence/dist/cli.js finish --results /path/to/results.json
-```
-
-`finish` stops the latest run's owned app, validates the results, and builds `evidence.gif` from all captured PNG files in filename order. It persists the outcome in `run.json` and prints `ok: true`, `result`, `ticket`, `criteria`, `screenshots`, and `gifPath`. With no screenshots, `gifPath` is null. The GIF loops with 1.5 seconds per frame and is reduced to fit within 10 MiB. Screenshots retain their proportions and are scaled to fit the GIF format's limit of 65,535 pixels per dimension.
-
-Exit status is 0 when every criterion passes, 1 when any criterion fails (with evidence still produced and `ok: true`), or 2 for a tool error such as invalid results, a missing run, or a GIF build failure.
-
-## Publish evidence
-
-Install the GitHub CLI (`gh`) and authenticate with `gh auth login --hostname github.com` (use your host for Enterprise Cloud). Publishing requires repository write access and an OAuth or personal access token; GitHub App and Actions tokens are refused. Supported hosts are `github.com` and `*.ghe.com`, not GitHub Enterprise Server.
-
-After `finish`, run from the tested repository:
-
-```sh
-node /path/to/pr-evidence/dist/cli.js publish
-```
-
-`publish` selects the repository's latest saved run, which must be finished, and finds an open PR using that run's saved branch and origin repository. PRs from forks are not found. If no PR is found, the command exits with status 2 and keeps the evidence so you can open a PR and retry.
-
-The command uploads the GIF, when present, and all screenshots, then creates or replaces an evidence comment containing the result, tested commit, ticket, criterion results, failed-criterion images, GIF, and collapsed screenshots. It matches an existing comment by the `<!-- pr-evidence -->` marker at its start and the authenticated author. Two colleagues publishing to the same PR therefore get separate comments; neither adopts the other's comment.
-
-If the tested commit is not on GitHub, publishing exits with status 2 and asks you to push it first, before uploading or changing a comment. If the commit is on GitHub but differs from the PR head, publishing proceeds with the warning "The PR head differs from the tested commit" in both the comment and JSON output. Runs made with `--allow-dirty` also carry a comment warning about uncommitted changes.
-
-Uploads use an undocumented GitHub attachment endpoint and fail closed on errors or unexpected attachment URLs. PNG and GIF uploads must be nonempty and at most 10 MiB each. All uploads complete before the comment is changed, so an upload failure leaves the comment untouched, though earlier uploads may already exist. Image rendering in a real PR has not yet been verified.
-
-Success exits with status 0 and prints `ok: true`, `pullRequest` (number and URL), `commentUrl`, and `warnings`. This status indicates successful publication even when the run's criteria failed. Tool errors exit with status 2.
-
-## Configuration and stored evidence
-
-Config requires nonempty `start` and `readyUrl` strings; `readyUrl` must be HTTP or HTTPS. Optional `login.usernameEnv` and `login.passwordEnv` are environment variable names, and optional `ticketFolder` is a nonempty string. These optional fields are returned as metadata; this foundation does not log in or read tickets. Unknown configuration keys are rejected.
-
-Runs live under `~/.pr-evidence/<repository-key>/<sha>/`, containing `run.json`, a `screenshots/` directory, and `app.log` for a launched app. Repeating a commit replaces its earlier evidence. On `start`, runs across repositories whose run records were last modified more than 14 days ago are pruned, except those with a live owned app.
-
-Network repository keys hash the origin's host, nondefault port, owner, and name. Default HTTP, HTTPS, and SSH transports share an identity. Filesystem or unrecognized origins and repositories without an origin instead use Git's absolute common directory. Linked worktrees therefore share ownership and evidence; per-worktree isolation is deferred. Earlier ambiguous namespaces are not migrated, but their expired runs remain eligible for pruning.
-
-See the [v1 spec](https://github.com/debrine/pr-evidence/issues/1).
+The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly.

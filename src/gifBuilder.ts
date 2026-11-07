@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import gifenc from "gifenc";
 import { PNG } from "pngjs";
 import { CliError } from "./errors.js";
+import { imageLimitBytes } from "./uploader.js";
 
 interface Bitmap {
   width: number;
@@ -10,7 +11,6 @@ interface Bitmap {
 }
 
 const stepDelayMilliseconds = 1500;
-const maximumGifBytes = 10 * 1024 * 1024;
 const maximumGifDimension = 65535;
 const maximumColors = 256;
 const candidateWidths = [1280, 960, 720, 480];
@@ -115,13 +115,13 @@ export function buildGif(screenshotPaths: string[], outputPath: string): void {
     for (const width of widths) {
       const height = Math.max(1, Math.round((fullHeight * width) / fullWidth));
       const bytes = encodeGif(frames, width, height);
-      if (bytes.length <= maximumGifBytes) {
+      if (bytes.length <= imageLimitBytes) {
         writeFileSync(outputPath, bytes);
         return;
       }
     }
     if (frames.length <= 2) {
-      throw new CliError("gif_too_large", "The GIF could not be kept under the 10 MiB limit.");
+      throw new CliError("gif_too_large", "The GIF could not be kept under GitHub's image size limit.");
     }
     frames = dropEverySecondFrame(frames);
   }

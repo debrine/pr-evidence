@@ -323,7 +323,7 @@ describe("app runner", () => {
     const ownApp = spawn(process.execPath, [sampleApp, String(port), pidFile], { stdio: "ignore" });
     startedProcessIds.push(ownApp.pid!);
     const url = `http://127.0.0.1:${port}/`;
-    await expect.poll(() => fetch(url).then((r) => r.status, () => 0)).toBe(200);
+    await expect.poll(() => fetch(url).then((response) => response.status, () => 0)).toBe(200);
     const repository = createRepository();
     const home = createHome();
 
@@ -527,6 +527,40 @@ describe("app runner", () => {
     } finally {
       await runCli(["stop"], { cwd: repository.path, home });
     }
+  });
+
+  it("keeps runs in separate worktrees of one repo apart", async () => {
+    const firstPidFile = join(createTemporaryDirectory(), "first.pid");
+    const secondPidFile = join(createTemporaryDirectory(), "second.pid");
+    const firstPort = await freePort();
+    const secondPort = await freePort();
+    const repository = createRepository();
+    const writeConfig = (path: string, port: number, pidFile: string) =>
+      writeFileSync(
+        join(path, ".pr-evidence.yml"),
+        `start: node ${sampleApp} ${port} ${pidFile}\nreadyUrl: http://127.0.0.1:${port}/\n`,
+      );
+    writeConfig(repository.path, firstPort, firstPidFile);
+    git(repository.path, "add", ".");
+    git(repository.path, "commit", "-q", "-m", "first config");
+    const worktreePath = join(createTemporaryDirectory(), "second");
+    git(repository.path, "worktree", "add", "-q", "-b", "second", worktreePath);
+    writeConfig(worktreePath, secondPort, secondPidFile);
+    git(worktreePath, "add", ".");
+    git(worktreePath, "commit", "-q", "-m", "second config");
+    const home = createHome();
+
+    await runCli(["start"], { cwd: repository.path, home });
+    const firstProcessId = appProcessId(firstPidFile);
+    await runCli(["start"], { cwd: worktreePath, home });
+    const secondProcessId = appProcessId(secondPidFile);
+
+    expect(isRunning(firstProcessId)).toBe(true);
+    await runCli(["stop"], { cwd: worktreePath, home });
+    expect(isRunning(secondProcessId)).toBe(false);
+    expect(isRunning(firstProcessId)).toBe(true);
+    await runCli(["stop"], { cwd: repository.path, home });
+    expect(isRunning(firstProcessId)).toBe(false);
   });
 
   it("reports when there is no run to stop", async () => {
