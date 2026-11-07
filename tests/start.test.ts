@@ -222,8 +222,9 @@ describe("start, comparing the commit with the open PR", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.json.warnings.join(" ")).toContain("Could not compare this commit with the open PR");
-    expect(result.json.warnings.join(" ")).toContain("gh auth login");
+    expect(result.json.warnings).toHaveLength(1);
+    expect(result.json.warnings[0]).toContain("Could not compare this commit with the open PR");
+    expect(result.json.warnings[0]).toContain("gh auth login");
   });
 
   it.each([

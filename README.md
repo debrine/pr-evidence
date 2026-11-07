@@ -47,7 +47,7 @@ Without a config, pass `--url` to test an app that is already running or a previ
 
 ### Apps with several processes
 
-If the app needs setup steps or more than one process, commit a wrapper script and name it as `start`. Do the setup first, then stay in the foreground:
+If the app needs setup steps or more than one process, commit a wrapper script and point `start` at it, for example `start: ./scripts/evidence-start.sh`. Do the setup first, then stay in the foreground:
 
 ```sh
 #!/bin/sh
@@ -60,7 +60,7 @@ npm run start:web &
 wait
 ```
 
-Set `readyUrl` to the part that answers last. The script has two minutes to reach it. The tool stops the script and the processes it keeps in the foreground or starts with `&`. It does not stop services that run on their own, such as those from `docker compose up -d`, so stop them with `docker compose down`.
+Set `readyUrl` to the part that answers last. The script has two minutes to reach it. The tool stops the script and the processes it keeps in the foreground or starts with `&`. It does not stop services that run on their own, such as those from `docker compose up -d`, so stop them with `docker compose down`. `wait` keeps the script running if only one of its processes dies, so a failure there shows up in the app rather than in `start`.
 
 For a one-off run, start the stack yourself and pass `--url`. You then own the app and stop it afterwards.
 

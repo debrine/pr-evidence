@@ -48,7 +48,7 @@ Once the developer approves the draft, write the file and ask them to commit it,
 
 If the app needs several processes or setup steps, such as Docker services, migrations and seed data before the API and front end, one foreground command may not be enough. Offer the developer these choices:
 
-- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. See [Apps with several processes](https://github.com/debrine/pr-evidence#apps-with-several-processes). Use this if the repo will be tested again.
+- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence#apps-with-several-processes). Use this if the repo will be tested again.
 - **`--url`**, with you starting the stack yourself. The tool does not own this app, and `finish` and `stop` leave it running. When the run ends, or is abandoned, stop everything you started and tell the developer about anything you left behind, such as seeded data.
 
 ## 2. Find the ticket
@@ -79,7 +79,7 @@ npx -y pr-evidence start --skill-version {{version}} [--url <url>] [--allow-dirt
 
 Show the developer any `warnings`. The output gives you `url`, `runDirectory`, `screenshotDirectory`, `login` and `browser`.
 
-If a warning says the commit is not the head of the PR, or that it could not be compared with the open PR, ask the developer whether to go on before testing anything, even with `--yes`. If they do not want to, run `npx -y pr-evidence stop`.
+If a warning says the commit is not the head of the PR, ask the developer whether to go on before testing anything, even with `--yes`. If they do not want to, run `npx -y pr-evidence stop`.
 
 If the start fails, show the error, including `appOutput` if present, and stop.
 

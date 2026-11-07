@@ -51,7 +51,8 @@ function describeBrowser(repositoryKey: string) {
 /** Why this commit may not be what the open PR shows, or null when nothing suggests that. */
 async function describePullRequestHeadProblem(
   repository: RepositoryIdentity,
-  { branch, sha }: RepoState,
+  branch: string | null,
+  sha: string,
 ): Promise<string | null> {
   if (branch === null) {
     return null;
@@ -72,8 +73,9 @@ async function collectWarnings(
   skillVersion: string | undefined,
 ): Promise<string[]> {
   const warnings: string[] = [];
-  const hostProblem = repoState.repository && describeUnsupportedHost(repoState.repository.host);
-  if (repoState.repository === null) {
+  const { repository, branch, sha } = repoState;
+  const hostProblem = repository && describeUnsupportedHost(repository.host);
+  if (repository === null) {
     warnings.push("The origin remote is not a GitHub repository, so publishing will fail.");
   } else if (hostProblem) {
     warnings.push(`Publishing will fail. ${hostProblem}`);
@@ -82,9 +84,8 @@ async function collectWarnings(
   if (missingGitHubCli !== null) {
     warnings.push(`Publishing will fail. ${missingGitHubCli.fix}`);
   }
-  // Any warning so far means GitHub cannot be used, so there is no PR to compare with.
-  if (warnings.length === 0) {
-    const headProblem = await describePullRequestHeadProblem(repoState.repository!, repoState);
+  if (repository !== null && hostProblem === null && missingGitHubCli === null) {
+    const headProblem = await describePullRequestHeadProblem(repository, branch, sha);
     if (headProblem !== null) {
       warnings.push(headProblem);
     }
