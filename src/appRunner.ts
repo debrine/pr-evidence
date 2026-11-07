@@ -70,9 +70,11 @@ async function waitUntilReady(
   let status: number | null = null;
   while (true) {
     signal.throwIfAborted();
-    const exit = app.exit();
-    if (exit !== null) {
-      const exitDescription = exit.signal === null ? `code ${exit.exitCode}` : `signal ${exit.signal}`;
+    const exitStatus = app.exitStatus();
+    if (exitStatus !== null) {
+      const exitDescription = exitStatus.signal === null
+        ? `code ${exitStatus.exitCode}`
+        : `signal ${exitStatus.signal}`;
       throw new CliError(
         "app_exited",
         `The start command exited with ${exitDescription}. The command must stay in the foreground; detached apps it leaves behind are not managed.`,
@@ -120,11 +122,7 @@ export async function startApp(
   process.on("SIGTERM", onTerminate);
   let app: LaunchedProcess | undefined;
   try {
-    try {
-      app = await launchProcess(command, { cwd: options.cwd, logPath: options.logPath });
-    } catch (error) {
-      throw new CliError("app_exited", `Could not launch the start command: ${command}. ${String(error)}`);
-    }
+    app = await launchProcess(command, { cwd: options.cwd, logPath: options.logPath });
     options.onStarted(app.identity);
     await waitUntilReady(options.readyUrl, app, options.logPath, cancellation.signal);
     cancellation.signal.throwIfAborted();

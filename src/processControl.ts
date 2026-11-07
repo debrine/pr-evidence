@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { closeSync, openSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { CliError } from "./errors.js";
 
 /**
  * Owns the lifecycle of a launched process tree: launch it, ask whether it is
@@ -15,7 +16,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 /** Identifies a launched process. Plain data, so it can be recorded and read back later. */
 export interface ProcessIdentity {
   processId: number;
-  /** Tells this process apart from a later one that reuses its id. */
+  /**
+   * Tells this process apart from a later one that reuses its id. An opaque,
+   * platform-specific value that is only ever compared, never parsed.
+   */
   processStartTime: string | null;
 }
 
@@ -27,7 +31,7 @@ export interface ProcessExit {
 export interface LaunchedProcess {
   identity: ProcessIdentity;
   /** How the launched command exited, or null while it is still running. */
-  exit(): ProcessExit | null;
+  exitStatus(): ProcessExit | null;
   /** Lets this CLI exit while the launched process keeps running. */
   release(): void;
 }
@@ -37,7 +41,8 @@ const stopPollMilliseconds = 50;
 
 /**
  * Runs `command` through the shell in `cwd`, with stdout and stderr appended
- * to `logPath`. Rejects if the command could not be launched at all.
+ * to `logPath`. Rejects with an `app_exited` CliError if the command could not
+ * be launched at all.
  */
 export async function launchProcess(
   command: string,
@@ -50,11 +55,15 @@ export async function launchProcess(
     stdio: ["ignore", logDescriptor, logDescriptor],
   });
   closeSync(logDescriptor);
-  await once(child, "spawn");
+  try {
+    await once(child, "spawn");
+  } catch (error) {
+    throw new CliError("app_exited", `Could not launch the start command: ${command}. ${String(error)}`);
+  }
   const processId = child.pid!;
   return {
     identity: { processId, processStartTime: readProcessStartTime(processId) },
-    exit: () =>
+    exitStatus: () =>
       child.exitCode === null && child.signalCode === null
         ? null
         : { exitCode: child.exitCode, signal: child.signalCode },
