@@ -12,7 +12,7 @@ import { readRepoState } from "./repoState.js";
 const failedCriteriaExitCode = 1;
 const toolFailureExitCode = 2;
 const commands = [
-  { usage: "setup [--agent claude|codex|cursor]...", description: "Install the skill and check prerequisites." },
+  { usage: "setup [--agent claude|codex|cursor]...", description: "Install the helper and the skill, and check prerequisites." },
   { usage: "start [--url <url>] [--allow-dirty] [--skill-version <version>]", description: "Begin a run for the current commit, starting the configured app unless --url is given." },
   { usage: "finish --results <file>", description: "Stop the app, record the results and build the GIF. Exits 1 if a criterion failed." },
   { usage: "stop", description: "Abandon a run, stopping any app it started." },

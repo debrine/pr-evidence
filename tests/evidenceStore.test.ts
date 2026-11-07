@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createHome, createRepository, runCli, startTestServer } from "./support/harness.js";
 
@@ -44,6 +44,24 @@ describe("evidence store", () => {
     await runCli(["start", "--url", app.url], { cwd: repository.path, home });
 
     expect(existsSync(profile)).toBe(true);
+  });
+
+  it("does not prune the installed helper, however old it is", async () => {
+    const repository = createRepository();
+    const app = await startTestServer();
+    const home = createHome();
+    const installedHelper = join(home, ".pr-evidence", "app", "0.0.1");
+    const helperFile = join(installedHelper, "node_modules", "pr-evidence", "dist", "cli.js");
+    mkdirSync(dirname(helperFile), { recursive: true });
+    writeFileSync(helperFile, "");
+    const timestamp = Date.now() / 1000 - 60 * dayInSeconds;
+    utimesSync(helperFile, timestamp, timestamp);
+    utimesSync(installedHelper, timestamp, timestamp);
+
+    const result = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(helperFile)).toBe(true);
   });
 
   it("replaces earlier evidence when the same commit is run again", async () => {

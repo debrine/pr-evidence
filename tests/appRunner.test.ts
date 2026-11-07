@@ -428,7 +428,8 @@ describe("app runner", () => {
       const home = createHome();
       const result = await runCli(["start"], {
         cwd: repository.path, home,
-        env: { PR_EVIDENCE_READY_TIMEOUT_MS: "1500" },
+        // Costs nothing, because the launcher exiting ends the wait. It boots two Node processes first.
+        env: { PR_EVIDENCE_READY_TIMEOUT_MS: "5000" },
       });
       const processId = appProcessId(pidFile);
       console.log("foreground-only CLI", JSON.stringify({ mode, result }));
@@ -498,7 +499,10 @@ describe("app runner", () => {
     );
     const home = createHome();
     const result = await runCli(["start"], {
-      cwd: repository.path, home, env: { PR_EVIDENCE_READY_TIMEOUT_MS: "500" },
+      cwd: repository.path,
+      home,
+      // Long enough for the app to write its PID file on a loaded machine. It never becomes ready.
+      env: { PR_EVIDENCE_READY_TIMEOUT_MS: "3000" },
     });
     const repositoryDirectory = join(home, ".pr-evidence", readdirSync(join(home, ".pr-evidence"))[0]!);
     const runDirectory = join(repositoryDirectory, git(repository.path, "rev-parse", "HEAD"));

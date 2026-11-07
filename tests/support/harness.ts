@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
@@ -20,6 +20,7 @@ const windowsToolPreloadName = "tool-stand-ins.cjs";
 const temporaryDirectories: string[] = [];
 const openServers: Server[] = [];
 let windowsNodeCopy: { directory: string; path: string } | undefined;
+let realNpmPath: string | undefined;
 
 function removeDirectory(directory: string): void {
   // Windows can hold a file open briefly after the process using it has exited.
@@ -85,6 +86,13 @@ function sharedWindowsNodeCopy(): string {
   return windowsNodeCopy.path;
 }
 
+/** The developer's own npm, which tests reach through a stand-in so nothing else leaks onto PATH. */
+function findRealNpm(): string {
+  realNpmPath ??= execSync(isWindows ? "where.exe npm.cmd" : "command -v npm", { encoding: "utf8" })
+    .split(/\r?\n/)[0]!;
+  return realNpmPath;
+}
+
 /**
  * Windows only runs real executables without a shell, so each stand-in is a copy of
  * node.exe under the tool's name. A preload script recognises that name, prints the
@@ -95,6 +103,7 @@ function writeWindowsToolShims(directory: string, toolOutputs: Record<string, st
   for (const toolName of ["node", ...Object.keys(toolOutputs)]) {
     linkSync(nodeCopy, join(directory, `${toolName}.exe`));
   }
+  writeFileSync(join(directory, "npm.cmd"), `@"${findRealNpm()}" %*\r\n`);
   writeFileSync(
     join(directory, windowsToolPreloadName),
     `const { writeSync } = require("node:fs");
@@ -110,6 +119,7 @@ if (toolOutput !== undefined) {
 
 function writePosixToolShims(directory: string, toolOutputs: Record<string, string>): void {
   writeExecutable(join(directory, "node"), `#!/bin/sh\nexec '${process.execPath}' "$@"\n`);
+  writeExecutable(join(directory, "npm"), `#!/bin/sh\nexec '${findRealNpm()}' "$@"\n`);
   for (const [toolName, toolOutput] of Object.entries(toolOutputs)) {
     writeExecutable(join(directory, toolName), `#!/bin/sh\nprintf '%s' '${toolOutput}'\n`);
   }

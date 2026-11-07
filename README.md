@@ -107,7 +107,7 @@ The skill runs these for you. Each prints one JSON document. The exit code is 0 
 
 | Command | Purpose |
 | --- | --- |
-| `setup` | Install the skill and check prerequisites |
+| `setup` | Install the helper and the skill, and check prerequisites |
 | `start` | Begin a run for the current commit |
 | `finish --results <file>` | Stop the app, record results and build the GIF |
 | `stop` | Abandon a run |
@@ -131,7 +131,7 @@ npm test
 npm run typecheck
 ```
 
-To try a checkout, run `npm ci` and `npm run build`, then `node /absolute/path/to/pr-evidence/dist/cli.js setup`. Run helper commands from the Git repository being tested. The installed skill invokes `npx`, so it always uses the published release.
+To try a checkout, run `npm ci`, then `npm pack`, then `PR_EVIDENCE_INSTALL_SOURCE=/absolute/path/to/pr-evidence-<version>.tgz node dist/cli.js setup`. Without `PR_EVIDENCE_INSTALL_SOURCE`, `setup` installs the published release with the same version number, whatever the checkout contains. Run helper commands from the Git repository being tested.
 
 The regular tests run the built CLI as a black box, against real git repos, a real HTTP server and a local fake of GitHub. The opt-in upload smoke test imports `src` directly. `npm run test:smoke:browser` drives real `chrome-devtools-axi` and real Chrome, and runs as the Windows smoke job in CI.
 
