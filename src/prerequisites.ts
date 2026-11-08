@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { findWindowsShell, windowsShellPrerequisite } from "./processControl.js";
 
 export interface MissingPrerequisite {
   name: string;
@@ -23,6 +24,11 @@ export function checkGitHubCli(): MissingPrerequisite | null {
       };
 }
 
+/** Only Windows, where the start command needs Git for Windows' sh.exe. POSIX always has `sh`. */
+function checkWindowsShell(): MissingPrerequisite | null {
+  return process.platform !== "win32" || findWindowsShell() !== null ? null : windowsShellPrerequisite;
+}
+
 export function findMissingPrerequisites(): MissingPrerequisite[] {
-  return [checkGitHubCli()].filter((missing) => missing !== null);
+  return [checkGitHubCli(), checkWindowsShell()].filter((missing) => missing !== null);
 }
