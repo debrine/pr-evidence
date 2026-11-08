@@ -126,7 +126,9 @@ export async function launchProcess(
   command: string,
   options: { cwd: string; logPath: string },
 ): Promise<LaunchedProcess> {
-  const logDescriptor = openSync(options.logPath, "a");
+  // Not append mode: Git for Windows' sh.exe drops what it writes to an append-only handle.
+  // The run directory is new for each launch, so there is nothing earlier to keep.
+  const logDescriptor = openSync(options.logPath, "w");
   let child: ChildProcess;
   try {
     child = platform.spawnShell(command, { cwd: options.cwd, logDescriptor });
