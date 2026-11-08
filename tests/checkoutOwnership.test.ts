@@ -48,7 +48,7 @@ describe("checkout ownership", () => {
     const port = (listener.address() as { port: number }).port;
     await new Promise<void>((closed) => listener.close(() => closed()));
     writeFileSync(join(repository.path, ".pr-evidence.yml"),
-      `start: node ${resolve("tests/support/app.mjs")} ${port} ${pidFile}\nreadyUrl: http://127.0.0.1:${port}/\n`);
+      `start: node '${resolve("tests/support/app.mjs")}' ${port} '${pidFile}'\nreadyUrl: http://127.0.0.1:${port}/\n`);
     git(repository.path, "add", ".");
     git(repository.path, "commit", "-qm", "configure app");
     const home = createHome();
