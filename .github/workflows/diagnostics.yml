@@ -1,11 +1,11 @@
 name: Diagnostics (temporary)
 on: push
 jobs:
-  powershell:
+  sh-log:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node .github/diagnostics/powershell-timing.mjs
+      - run: node .github/diagnostics/sh-log.mjs
