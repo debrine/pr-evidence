@@ -104,7 +104,9 @@ const windows: Platform = {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      `(Get-Process -Id ${processId} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+      // Imported by path, because finding it through PSModulePath can take over 20 seconds when that is unset.
+      "Import-Module \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\"; " +
+        `(Get-Process -Id ${processId} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
     ]),
   trustsUnreadableStartTime: false,
   requestStop: (processId) => runTaskkill(processId, []),

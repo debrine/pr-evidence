@@ -15,6 +15,7 @@ const variants = {
 };
 const commands = {
   getProcess: `(Get-Process -Id ${process.pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
+  importedGetProcess: `Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Management"; (Get-Process -Id ${process.pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`,
   dotnet: `[System.Diagnostics.Process]::GetProcessById(${process.pid}).StartTime.ToUniversalTime().ToString('o')`,
 };
 for (const [variantName, env] of Object.entries(variants)) {
