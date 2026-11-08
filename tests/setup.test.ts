@@ -71,14 +71,19 @@ function runInstalledHelper(helperPath: string, ...args: string[]): string {
 }
 
 /** Makes a folder impossible to delete, in whichever way this platform allows. */
-async function blockRemoval(directory: string): Promise<() => void> {
+async function blockRemoval(directory: string): Promise<() => Promise<void>> {
   if (process.platform !== "win32") {
     chmodSync(directory, 0o500);
-    return () => chmodSync(directory, 0o700);
+    return async () => chmodSync(directory, 0o700);
   }
   const holder = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: directory });
   await once(holder, "spawn");
-  return () => holder.kill();
+  // Waits for the exit, because the folder stays locked until the holder is gone.
+  return async () => {
+    const exited = once(holder, "exit");
+    holder.kill();
+    await exited;
+  };
 }
 
 describe("setup", () => {
@@ -190,7 +195,7 @@ describe("setup", () => {
       expect(existsSync(helperPathIn(readSkill(home)))).toBe(true);
       expect(result.stderr).toContain("0.0.1");
     } finally {
-      allowRemoval();
+      await allowRemoval();
     }
   });
 

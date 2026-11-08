@@ -156,7 +156,8 @@ describe("app runner", () => {
     }
   });
 
-  it.each(["SIGINT", "SIGTERM"] as const)(
+  // Windows cannot send these signals to another process: Node ends the CLI outright, so no handler runs.
+  it.skipIf(isWindows).each(["SIGINT", "SIGTERM"] as const)(
     "cleans up owned startup when readiness is interrupted by %s",
     async (signal) => {
       const pidFile = join(createTemporaryDirectory(), "app.pid");
@@ -490,7 +491,8 @@ describe("app runner", () => {
           while (!fs.existsSync(${JSON.stringify(pidFile)}) && Date.now() < deadline) {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
           }
-          setTimeout(() => process.exit(2), 1000).unref();
+          // A backstop in case cleanup hangs. Stopping on Windows waits 5 seconds before forcing.
+          setTimeout(() => process.exit(2), 15000).unref();
           throw new Error('injected ownership write failure');
         }
         return originalWrite.call(this, path, data, ...options);
