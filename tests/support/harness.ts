@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
@@ -12,12 +12,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, afterEach } from "vitest";
 
 const cliPath = resolve("dist/cli.js");
 const isWindows = process.platform === "win32";
 const windowsToolPreloadName = "tool-stand-ins.cjs";
 const temporaryDirectories: string[] = [];
+const processIdsToStop: number[] = [];
 const openServers: Server[] = [];
 let windowsNodeCopy: { directory: string; path: string } | undefined;
 let realNpmPath: string | undefined;
@@ -28,6 +30,7 @@ function removeDirectory(directory: string): void {
 }
 
 afterEach(async () => {
+  await stopTestProcesses();
   await Promise.all(
     openServers.splice(0).map(
       (server) => new Promise((closed) => server.close(closed)),
@@ -40,6 +43,44 @@ afterAll(() => {
   if (windowsNodeCopy) removeDirectory(windowsNodeCopy.directory);
   windowsNodeCopy = undefined;
 });
+
+/** Stops this process after the test, before its directories are removed. On Windows its children are stopped too. */
+export function stopAfterTest(processId: number): void {
+  processIdsToStop.push(processId);
+}
+
+export function isProcessRunning(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stopTestProcesses(): Promise<void> {
+  const processIds = processIdsToStop.splice(0);
+  processIds.filter(isProcessRunning).forEach(killProcessTree);
+  // Windows keeps a process's working directory locked until the process has exited,
+  // and a killed process can take a moment to exit, so wait before removing directories.
+  const deadline = Date.now() + 10_000;
+  while (processIds.some(isProcessRunning) && Date.now() < deadline) {
+    await sleep(100);
+  }
+}
+
+function killProcessTree(processId: number): void {
+  if (isWindows) {
+    const taskkill = join(process.env.SystemRoot!, "System32", "taskkill.exe");
+    spawnSync(taskkill, ["/PID", String(processId), "/T", "/F"], { stdio: "ignore" });
+    return;
+  }
+  try {
+    process.kill(processId, "SIGKILL");
+  } catch {
+    // It exited on its own.
+  }
+}
 
 export function createTemporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "pr-evidence-test-"));

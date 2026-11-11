@@ -5,7 +5,7 @@ import {
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   cliEnvironment,
   createHome,
@@ -13,30 +13,14 @@ import {
   createTemporaryDirectory,
   createToolShims,
   git,
+  isProcessRunning,
   runCli,
   startTestServer,
+  stopAfterTest,
 } from "./support/harness.js";
 
 const sampleApp = resolve("tests/support/app.mjs");
 const isWindows = process.platform === "win32";
-const startedProcessIds: number[] = [];
-
-afterEach(() => {
-  for (const processId of startedProcessIds.splice(0)) {
-    if (isRunning(processId)) {
-      process.kill(processId, "SIGKILL");
-    }
-  }
-});
-
-function isRunning(processId: number): boolean {
-  try {
-    process.kill(processId, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Quotes a path for the start command, which `sh` runs. Windows paths contain backslashes. */
 function shellQuote(path: string): string {
@@ -77,7 +61,7 @@ async function repositoryWithApp(startCommand: (port: number) => string, files: 
 
 function appProcessId(pidFile: string): number {
   const processId = Number(readFileSync(pidFile, "utf8"));
-  startedProcessIds.push(processId);
+  stopAfterTest(processId);
   return processId;
 }
 
@@ -120,7 +104,7 @@ describe("app runner", () => {
       expect(result.exitCode).toBe(2);
       expect(result.json.error.code).toBe(failure === "exit" ? "app_exited" : "app_not_ready");
       expect(result.json.error.appOutput).toBe(tail);
-      expect(isRunning(processId)).toBe(false);
+      expect(isProcessRunning(processId)).toBe(false);
       expect(result.stderr).toBe("");
       expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(false);
     },
@@ -187,7 +171,7 @@ describe("app runner", () => {
         const result = await closed;
         console.log("interrupted startup CLI", JSON.stringify({ signal, result, stdout, stderr }));
 
-        expect(isRunning(processId)).toBe(false);
+        expect(isProcessRunning(processId)).toBe(false);
         expect(JSON.parse(stdout).error.code).toBe("app_interrupted");
         expect(JSON.parse(stdout).error.message).toContain(signal);
         expect(stderr).toBe("");
@@ -279,7 +263,7 @@ describe("app runner", () => {
 
     expect(stopped.exitCode).toBe(0);
     expect(stopped.json.stopped).toBe(true);
-    expect(isRunning(processId)).toBe(false);
+    expect(isProcessRunning(processId)).toBe(false);
   });
 
   it("stops a whole process tree, not only the shell that launched it", async () => {
@@ -293,7 +277,7 @@ describe("app runner", () => {
     const processId = appProcessId(pidFile);
     await runCli(["stop"], { cwd: repository.path, home });
 
-    expect(isRunning(processId)).toBe(false);
+    expect(isProcessRunning(processId)).toBe(false);
   });
 
   it("fails with the app's output when the app exits before it is ready", async () => {
@@ -322,7 +306,7 @@ describe("app runner", () => {
     expect(result.exitCode).toBe(2);
     expect(result.json.error.code).toBe("app_not_ready");
     expect(result.json.error.appOutput).toContain("sample app booting");
-    expect(isRunning(appProcessId(pidFile))).toBe(false);
+    expect(isProcessRunning(appProcessId(pidFile))).toBe(false);
   });
 
   it("refuses to start over something already answering on the ready URL", async () => {
@@ -347,7 +331,7 @@ describe("app runner", () => {
     const pidFile = join(createTemporaryDirectory(), "app.pid");
     const port = await freePort();
     const ownApp = spawn(process.execPath, [sampleApp, String(port), pidFile], { stdio: "ignore" });
-    startedProcessIds.push(ownApp.pid!);
+    stopAfterTest(ownApp.pid!);
     const url = `http://127.0.0.1:${port}/`;
     await expect.poll(() => fetch(url).then((response) => response.status, () => 0)).toBe(200);
     const repository = createRepository();
@@ -358,7 +342,7 @@ describe("app runner", () => {
 
     expect(stopped.exitCode).toBe(0);
     expect(stopped.json.stopped).toBe(false);
-    expect(isRunning(ownApp.pid!)).toBe(true);
+    expect(isProcessRunning(ownApp.pid!)).toBe(true);
   });
 
   it("stops an app left over from an earlier run before starting a new one", async () => {
@@ -375,8 +359,8 @@ describe("app runner", () => {
 
     expect(first.exitCode).toBe(0);
     expect(second.exitCode).toBe(0);
-    expect(isRunning(firstProcessId)).toBe(false);
-    expect(isRunning(secondProcessId)).toBe(true);
+    expect(isProcessRunning(firstProcessId)).toBe(false);
+    expect(isProcessRunning(secondProcessId)).toBe(true);
     await runCli(["stop"], { cwd: repository.path, home });
   });
 
@@ -424,7 +408,7 @@ describe("app runner", () => {
         const stopped = await runCli(["stop"], { cwd: secondPath, home });
         console.log("repository isolation CLI", { first, second, stopped });
         expect(second.exitCode).toBe(0);
-        expect(isRunning(processId)).toBe(true);
+        expect(isProcessRunning(processId)).toBe(true);
         expect(existsSync(screenshot)).toBe(true);
         expect(second.json.runDirectory).not.toBe(first.json.runDirectory);
         expect(stopped.json.stopped).toBe(false);
@@ -453,7 +437,7 @@ describe("app runner", () => {
       expect(result.exitCode).toBe(2);
       expect(result.json.error.code).toBe("app_exited");
       expect(result.json.error.message).toContain("foreground");
-      expect(isRunning(processId)).toBe(true);
+      expect(isProcessRunning(processId)).toBe(true);
       const stopped = await runCli(["stop"], { cwd: repository.path, home });
       expect(stopped.json.stopped).toBe(false);
     },
@@ -507,7 +491,7 @@ describe("app runner", () => {
     console.log("ownership write failure CLI", result);
     expect(result.exitCode).toBe(2);
     expect(result.json.error.message).toContain("injected ownership write failure");
-    expect(isRunning(appProcessId(pidFile))).toBe(false);
+    expect(isProcessRunning(appProcessId(pidFile))).toBe(false);
   });
 
   it("clears ownership after failed startup cleanup", async () => {
@@ -526,7 +510,7 @@ describe("app runner", () => {
     const runDirectory = join(repositoryDirectory, git(repository.path, "rev-parse", "HEAD"));
     console.log("failed startup CLI", result);
     expect(result.json.error.code).toBe("app_not_ready");
-    expect(isRunning(appProcessId(pidFile))).toBe(false);
+    expect(isProcessRunning(appProcessId(pidFile))).toBe(false);
     expect(JSON.parse(readFileSync(join(runDirectory, "run.json"), "utf8")).app).toBeUndefined();
   });
 
@@ -550,7 +534,7 @@ describe("app runner", () => {
       expect(whileAlive.exitCode).toBe(0);
       expect(existsSync(started.json.runDirectory)).toBe(true);
       process.kill(processId, "SIGTERM");
-      await expect.poll(() => isRunning(processId)).toBe(false);
+      await expect.poll(() => isProcessRunning(processId)).toBe(false);
       const afterExit = await runCli(["start", "--url", externalApp.url], { cwd: otherRepository.path, home });
       console.log("prune exited app CLI", { whileAlive, afterExit });
       expect(afterExit.exitCode).toBe(0);
@@ -586,12 +570,12 @@ describe("app runner", () => {
     await runCli(["start"], { cwd: worktreePath, home });
     const secondProcessId = appProcessId(secondPidFile);
 
-    expect(isRunning(firstProcessId)).toBe(true);
+    expect(isProcessRunning(firstProcessId)).toBe(true);
     await runCli(["stop"], { cwd: worktreePath, home });
-    expect(isRunning(secondProcessId)).toBe(false);
-    expect(isRunning(firstProcessId)).toBe(true);
+    expect(isProcessRunning(secondProcessId)).toBe(false);
+    expect(isProcessRunning(firstProcessId)).toBe(true);
     await runCli(["stop"], { cwd: repository.path, home });
-    expect(isRunning(firstProcessId)).toBe(false);
+    expect(isProcessRunning(firstProcessId)).toBe(false);
   });
 
   it("passes a variable set in the start command to the app", async () => {
@@ -614,7 +598,7 @@ describe("app runner", () => {
     const processId = appProcessId(pidFile);
     const stopped = await runCli(["stop"], { cwd: repository.path, home });
     expect(stopped.json.stopped).toBe(true);
-    expect(isRunning(processId)).toBe(false);
+    expect(isProcessRunning(processId)).toBe(false);
   });
 
   it("runs a wrapper script that starts apps in the background and waits, and stops all of them", async () => {
@@ -639,10 +623,10 @@ describe("app runner", () => {
     expect(started.exitCode).toBe(0);
     await expect.poll(() => existsSync(join(repository.path, "scripts", "second.pid"))).toBe(true);
     const processIds = ["first.pid", "second.pid"].map((name) => appProcessId(join(repository.path, "scripts", name)));
-    expect(processIds.map(isRunning)).toEqual([true, true]);
+    expect(processIds.map(isProcessRunning)).toEqual([true, true]);
     const stopped = await runCli(["stop"], { cwd: repository.path, home });
     expect(stopped.json.stopped).toBe(true);
-    expect(processIds.map(isRunning)).toEqual([false, false]);
+    expect(processIds.map(isProcessRunning)).toEqual([false, false]);
   });
 
   it("does not stop a process that only reuses the app's process id", async () => {
@@ -655,6 +639,8 @@ describe("app runner", () => {
     const processId = appProcessId(pidFile);
     const recordPath = join(started.json.runDirectory, "run.json");
     const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    // The recorded app is the shell that runs the start command, so stop it too.
+    stopAfterTest(record.app.processId);
     writeFileSync(recordPath, JSON.stringify({ ...record, app: { ...record.app, processStartTime: "an earlier process" } }));
 
     const stopped = await runCli(["stop"], { cwd: repository.path, home });
@@ -662,7 +648,7 @@ describe("app runner", () => {
 
     expect(stopped.exitCode).toBe(0);
     expect(stopped.json.stopped).toBe(false);
-    expect(isRunning(processId)).toBe(true);
+    expect(isProcessRunning(processId)).toBe(true);
   });
 
   it.runIf(isWindows)("runs the start command with Git's sh.exe, never one found on PATH", async () => {
@@ -759,9 +745,9 @@ describe("app runner", () => {
 
     expect(refused.exitCode).toBe(2);
     expect(refused.json.error.code).toBe("app_not_confirmed");
-    expect(isRunning(processId)).toBe(true);
+    expect(isProcessRunning(processId)).toBe(true);
     expect((await runCli(["stop"], { cwd: repository.path, home })).json.stopped).toBe(true);
-    expect(isRunning(processId)).toBe(false);
+    expect(isProcessRunning(processId)).toBe(false);
   });
 
   it("reports when there is no run to stop", async () => {
@@ -792,6 +778,6 @@ describe("finish", () => {
     });
 
     expect(finished.exitCode).toBe(2);
-    expect(isRunning(processId)).toBe(false);
+    expect(isProcessRunning(processId)).toBe(false);
   });
 });
