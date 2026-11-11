@@ -6,7 +6,7 @@ You ask your coding agent to gather evidence. It works out what to test from the
 
 The tool only reports. It never changes the code under test.
 
-Web apps only, on github.com and `*.ghe.com`. macOS and Linux.
+Web apps only, on github.com and `*.ghe.com`. Runs on macOS, Linux and Windows.
 
 ## Install
 
@@ -14,7 +14,9 @@ Web apps only, on github.com and `*.ghe.com`. macOS and Linux.
 npx pr-evidence setup
 ```
 
-This installs the skill at user level for each agent it finds, and tells you if a prerequisite is missing:
+On Windows, run `npx.cmd pr-evidence setup` instead. See [Windows](#windows).
+
+This installs the helper in `~/.pr-evidence/app/<version>/`, then installs the skill at user level for each agent it finds, and tells you if a prerequisite is missing:
 
 | Agent | Skill location |
 | --- | --- |
@@ -24,7 +26,36 @@ This installs the skill at user level for each agent it finds, and tells you if 
 
 Use `--agent claude`, `--agent codex` or `--agent cursor` to choose instead.
 
-You need Node 20 or later, npm, Git, a Unix environment with `sh`, `ps` and process group signals, and the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`. `setup` installs a pinned `chrome-devtools-axi` with the helper, so you do not install it yourself. You do not need ffmpeg or ImageMagick.
+You need:
+
+- Node 20 or later, with npm
+- Git. On Windows, Git for Windows, as described in [Windows](#windows)
+- On macOS and Linux, `sh`, `ps` and process group signals, as standard
+- The [GitHub CLI](https://cli.github.com), logged in with `gh auth login`
+
+`setup` installs a pinned `chrome-devtools-axi` with the helper, so you do not install it yourself. You do not need ffmpeg or ImageMagick.
+
+The skill calls the installed helper as `node "<helperPath>"`, using the `helperPath` field that `setup` prints. To run a helper command yourself, use the same form, so you stay on the version your agent uses. Replace `<version>` with the version `setup` installed:
+
+```sh
+node ~/.pr-evidence/app/<version>/node_modules/pr-evidence/dist/cli.js publish
+```
+
+In PowerShell:
+
+```powershell
+node "$HOME\.pr-evidence\app\<version>\node_modules\pr-evidence\dist\cli.js" publish
+```
+
+In cmd:
+
+```bat
+node "%USERPROFILE%\.pr-evidence\app\<version>\node_modules\pr-evidence\dist\cli.js" publish
+```
+
+### Upgrading from 0.1
+
+Run `npx pr-evidence@latest setup` once after upgrading, or `npx.cmd pr-evidence@latest setup` on Windows. `@latest` stops `npx` reusing a cached 0.1 copy. Earlier versions ran every helper command through `npx`. `setup` installs the helper and rewrites the skill to call it directly. A `chrome-devtools-axi` you installed yourself is no longer used.
 
 ## Configure a repo
 
@@ -62,6 +93,17 @@ Set `readyUrl` to the part that answers last. The script has two minutes to reac
 
 For a one-off run, start the stack yourself and pass `--url`. You then own the app and stop it afterwards.
 
+## Windows
+
+Windows is supported natively, from PowerShell or cmd. WSL is not needed.
+
+- Run first-time setup with `npx.cmd pr-evidence setup`. It works even when PowerShell's execution policy blocks scripts. After that the skill runs `node.exe` directly, so the policy does not apply.
+- Install [Git for Windows](https://git-scm.com/download/win). The start command runs with its `sh.exe`, found from `git --exec-path`, so the same `.pr-evidence.yml` and wrapper scripts work on every platform. `setup` reports it as missing if it cannot be found.
+- If the repo has wrapper scripts, add `*.sh text eol=lf` to its `.gitattributes`. Otherwise Git can check them out with CRLF line endings, and `sh` fails on the carriage returns.
+- The app is stopped with `taskkill /T`, then `taskkill /T /F` after 5 seconds.
+- `taskkill` finds children by their parent at the moment it runs, so a process whose parent has already exited is missed and keeps running. For example, a wrapper script that starts a server with `&` and then exits leaves that server behind. End the script with `wait`, as in [Apps with several processes](#apps-with-several-processes), and stop anything left over yourself. The tool does not stop processes by listening port, because that could stop an app it did not start.
+- If the tool cannot confirm that a running process is the app it started, it reports `app_not_confirmed` and stops nothing. Stop the app yourself if it is still running.
+
 ## Use it
 
 Ask your agent, for example:
@@ -97,7 +139,7 @@ The tool never uses your day-to-day browser profile.
 - PRs from forks are not found.
 - Each person who publishes on a PR gets their own evidence comment, so nobody can edit another person's evidence.
 
-Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/`. On `start`, runs whose records have not changed in 14 days are pruned, except those with a live app owned by this tool. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, the evidence is kept subject to that retention rule. After opening a PR, run `npx pr-evidence publish`: it prefers a finished run for the checked-out commit, otherwise selects this checkout's latest run, which must be finished. It finds the PR using the selected run's saved branch and origin repository.
+Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/`. On `start`, runs whose records have not changed in 14 days are pruned, except those with a live app owned by this tool. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, the evidence is kept subject to that retention rule. After opening a PR, run the installed helper's `publish`, as shown in [Install](#install): it prefers a finished run for the checked-out commit, otherwise selects this checkout's latest run, which must be finished. It finds the PR using the selected run's saved branch and origin repository.
 
 To test two branches at once, use separate `git worktree` checkouts. Their apps and runs stay apart when testing different commits. The same commit can have only one unfinished run across checkouts: start exits 2 without changing evidence if another checkout owns that run. Finish it in its owning checkout first; starting the commit elsewhere then replaces its evidence. Stop and finish ignore runs owned by another checkout. Worktrees share a saved browser profile, so run the browser steps one at a time.
 
