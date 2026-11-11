@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,26 +12,6 @@ import {
 } from "./support/harness.js";
 
 describe("start", () => {
-  it("returns a valid, deterministic browser session per repository", async () => {
-    const repository = createRepository();
-    const home = createHome();
-    const app = await startTestServer();
-    const sessionForStart = async () => {
-      const result = await runCli(["start", "--url", app.url], { cwd: repository.path, home });
-      expect(result.exitCode).toBe(0);
-      return execFileSync("/bin/sh", [
-        "-c", `${result.json.browser.commandPrefix} "$@"`, "browser-session-test",
-        process.execPath, "-p", "process.env.CHROME_DEVTOOLS_AXI_SESSION",
-      ], { encoding: "utf8" }).trim();
-    };
-
-    const session = await sessionForStart();
-    expect(session).toMatch(/^[A-Za-z0-9._-]{1,64}$/);
-    expect(await sessionForStart()).toBe(session);
-    git(repository.path, "remote", "set-url", "origin", "git@github.com:acme/other.git");
-    expect(await sessionForStart()).not.toBe(session);
-  });
-
   it("refuses a dirty working tree", async () => {
     const repository = createRepository();
     writeFileSync(join(repository.path, "app.txt"), "changed\n");

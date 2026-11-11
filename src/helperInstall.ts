@@ -18,8 +18,10 @@ function runNpmInstall(versionDirectory: string, packageSource: string): void {
   writeFileSync(join(versionDirectory, "package.json"), '{ "private": true }\n');
   try {
     // Through a shell, because on Windows npm is a .cmd file, which Node cannot run without one.
+    // --prefer-offline uses what npx has just cached without asking the registry again. Without it, an
+    // unreachable registry makes npm crash part way through the dependency tree, even with all of it cached.
     execSync(
-      `npm install "${packageSource}" --save-exact --no-audit --no-fund --no-update-notifier --loglevel=error`,
+      `npm install "${packageSource}" --save-exact --prefer-offline --no-audit --no-fund --no-update-notifier --loglevel=error`,
       { cwd: versionDirectory, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", windowsHide: true },
     );
   } catch (error) {

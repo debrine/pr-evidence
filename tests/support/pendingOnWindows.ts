@@ -8,11 +8,4 @@ interface PendingGroup {
   tests: Record<string, string[]>;
 }
 
-export const pendingOnWindows: PendingGroup[] = [
-  {
-    reason: "`commandPrefix` is POSIX shell syntax, and the `browser` command replaces it. See #16.",
-    tests: {
-      "tests/start.test.ts": ["start > returns a valid, deterministic browser session per repository"],
-    },
-  },
-];
+export const pendingOnWindows: PendingGroup[] = [];

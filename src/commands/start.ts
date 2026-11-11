@@ -13,7 +13,7 @@ import {
 } from "../evidenceStore.js";
 import { describeUnsupportedHost, GitHubClient, readUploadToken } from "../github.js";
 import { helperVersion } from "../packageInfo.js";
-import { checkBrowserCli, checkGitHubCli } from "../prerequisites.js";
+import { checkGitHubCli } from "../prerequisites.js";
 import { readRepoState, type RepoState, type RepositoryIdentity } from "../repoState.js";
 import { describeSetupCommand, findNewerHelperVersion } from "../updateCheck.js";
 import { stopLatestRunApp } from "./stop.js";
@@ -23,30 +23,6 @@ export interface StartOptions {
   allowDirty: boolean;
   url?: string;
   skillVersion?: string;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-/**
- * Pins the browser to a dedicated profile. The unset variables would otherwise
- * attach it to the developer's own Chrome and their real sessions.
- */
-function describeBrowser(repositoryKey: string) {
-  const profileDirectory = browserProfileDirectoryOf(repositoryKey);
-  const sessionName = `pr-evidence-${repositoryKey.replace(/[^A-Za-z0-9_-]/g, "-")}`.slice(0, 64);
-  return {
-    profileDirectory,
-    commandPrefix: [
-      "env",
-      "-u CHROME_DEVTOOLS_AXI_AUTO_CONNECT",
-      "-u CHROME_DEVTOOLS_AXI_BROWSER_URL",
-      "-u CHROME_DEVTOOLS_AXI_MCP_SERVER_URL",
-      `CHROME_DEVTOOLS_AXI_USER_DATA_DIR=${shellQuote(profileDirectory)}`,
-      `CHROME_DEVTOOLS_AXI_SESSION=${shellQuote(sessionName)}`,
-    ].join(" "),
-  };
 }
 
 /** Why this commit may not be what the open PR shows, or null when nothing suggests that. */
@@ -151,14 +127,6 @@ export async function start(options: StartOptions): Promise<Record<string, unkno
     );
   }
 
-  const missingBrowserCli = checkBrowserCli();
-  if (missingBrowserCli !== null) {
-    throw new CliError(
-      "missing_prerequisite",
-      `${missingBrowserCli.name} is required. ${missingBrowserCli.fix}`,
-    );
-  }
-
   // Looked up while the app starts, so that a slow registry adds as little as possible to the run.
   const lookupCancellation = new AbortController();
   const newerHelperVersionLookup = findNewerHelperVersion(lookupCancellation.signal);
@@ -194,7 +162,7 @@ async function startRun(
     screenshotDirectory: screenshotDirectoryOf(runDirectory),
     login: config?.login ?? null,
     ticketFolder: config?.ticketFolder ?? null,
-    browser: describeBrowser(repoState.repositoryKey),
+    browser: { profileDirectory: browserProfileDirectoryOf(repoState.repositoryKey) },
     warnings: await collectWarnings(repoState, options.skillVersion, newerHelperVersionLookup),
   };
 }

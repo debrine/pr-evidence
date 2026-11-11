@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { browser } from "./commands/browser.js";
 import { finish } from "./commands/finish.js";
 import { publish } from "./commands/publish.js";
 import { setup } from "./commands/setup.js";
@@ -14,6 +15,7 @@ const toolFailureExitCode = 2;
 const commands = [
   { usage: "setup [--agent claude|codex|cursor]...", description: "Install the helper and the skill, and check prerequisites." },
   { usage: "start [--url <url>] [--allow-dirty] [--skill-version <version>]", description: "Begin a run for the current commit, starting the configured app unless --url is given." },
+  { usage: "browser [--headed] <chrome-devtools-axi arguments>", description: "Run chrome-devtools-axi on this repo's dedicated browser profile. Prints its output, not JSON, and exits with its exit code." },
   { usage: "finish --results <file>", description: "Stop the app, record the results and build the GIF. Exits 1 if a criterion failed." },
   { usage: "stop", description: "Abandon a run, stopping any app it started." },
   { usage: "publish", description: "Prefer the checked-out commit's finished run, otherwise use this checkout's latest run, which must be finished; upload it and update the evidence comment on its PR." },
@@ -91,8 +93,23 @@ function toCliError(error: unknown): CliError {
     : new CliError("unexpected_error", String(error));
 }
 
+async function main(argv: string[]): Promise<void> {
+  const [command, ...commandArgs] = argv;
+  if (command === "browser") {
+    // Only a leading --headed is the helper's, so that every later argument reaches chrome-devtools-axi as written.
+    const headed = commandArgs[0] === "--headed";
+    process.exitCode = await browser({
+      repositoryPath: process.cwd(),
+      headed,
+      args: headed ? commandArgs.slice(1) : commandArgs,
+    });
+    return;
+  }
+  print({ ok: true, ...(await runCommand(argv)) });
+}
+
 try {
-  print({ ok: true, ...(await runCommand(process.argv.slice(2))) });
+  await main(process.argv.slice(2));
 } catch (error) {
   const failure = toCliError(error);
   print({
