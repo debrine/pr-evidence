@@ -50,7 +50,7 @@ Once the developer approves the draft, write the file and ask them to commit it,
 
 If the app needs several processes or setup steps, such as Docker services, migrations and seed data before the API and front end, one foreground command may not be enough. Offer the developer these choices:
 
-- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence#apps-with-several-processes). Use this if the repo will be tested again.
+- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence/blob/main/docs/configuration.md#apps-with-several-processes). Use this if the repo will be tested again.
 - **`--url`**, with you starting the stack yourself. The tool does not own this app, and `finish` and `stop` leave it running. When the run ends, or is abandoned, stop everything you started and tell the developer about anything you left behind, such as seeded data.
 
 ## 2. Find the ticket
@@ -164,4 +164,4 @@ Report the `commentUrl` and any `warnings`.
 
 - `commit_not_on_github`: nothing was uploaded and the evidence is saved. Ask the developer to push the tested commit, then publish again. Do not push it yourself.
 - `no_pull_request`: the evidence is saved. Tell the developer to open a PR and then ask you to publish, or to run `{{helper}} publish` themselves.
-- Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence#how-the-upload-works) before describing what was uploaded or posted.
+- Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence/blob/main/docs/publishing.md#how-the-upload-works) before describing what was uploaded or posted.
