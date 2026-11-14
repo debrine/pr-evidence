@@ -1,4 +1,4 @@
-import type { RunOutcome, RunRecord } from "./evidenceStore.js";
+import type { CriterionResult, RunOutcome, RunRecord } from "./evidenceStore.js";
 import type { RepositoryIdentity } from "./repoState.js";
 
 export const commentMarker = "<!-- pr-evidence -->";
@@ -9,7 +9,6 @@ export interface EvidenceCommentInput {
   outcome: RunOutcome;
   /** Hosted URL for each uploaded file, by file name. */
   screenshotUrls: Map<string, string>;
-  gifUrl: string | null;
   headDiffers: boolean;
 }
 
@@ -63,36 +62,57 @@ function renderSummary(input: EvidenceCommentInput): string[] {
   return lines;
 }
 
-function renderCriteria(outcome: RunOutcome): string[] {
+function resultLabel(criterion: CriterionResult): string {
+  return criterion.result === "pass" ? "Pass" : "Fail";
+}
+
+function renderTable(outcome: RunOutcome): string[] {
   return [
     "",
-    "| Result | Criterion | Note |",
-    "| --- | --- | --- |",
+    "| Result | Criterion |",
+    "| --- | --- |",
     ...outcome.criteria.map(
-      (criterion) =>
-        `| ${criterion.result === "pass" ? "Pass" : "Fail"} | ${escapeInline(criterion.description)} | ${escapeInline(criterion.note ?? "")} |`,
+      (criterion) => `| ${resultLabel(criterion)} | ${escapeInline(criterion.description)} |`,
     ),
   ];
 }
 
-function renderFailures({ outcome, screenshotUrls }: EvidenceCommentInput): string[] {
-  return outcome.criteria.flatMap((criterion) => {
-    const url = criterion.screenshot && screenshotUrls.get(criterion.screenshot);
-    return criterion.result === "fail" && url
-      ? ["", `**Failed: ${escapeInline(criterion.description)}**`, "", image(criterion.screenshot!, url)]
-      : [];
-  });
+function renderProof(criterion: CriterionResult, screenshotUrls: Map<string, string>): string[] {
+  const note = criterion.note ? ["", escapeInline(criterion.note)] : [];
+  const images =
+    criterion.screenshots.length === 0
+      ? ["", "No screenshots"]
+      : criterion.screenshots.flatMap((fileName) => [
+          "",
+          image(fileName, screenshotUrls.get(fileName)!),
+        ]);
+  return [...note, ...images];
 }
 
-function renderScreenshots({ outcome, screenshotUrls }: EvidenceCommentInput): string[] {
-  if (outcome.screenshots.length === 0) {
+/** Failures are expanded so the proof to act on is visible; passes stay one click away. */
+function renderCriterionSection(
+  criterion: CriterionResult,
+  screenshotUrls: Map<string, string>,
+): string[] {
+  const title = `${resultLabel(criterion)}: ${escapeInline(criterion.description)}`;
+  const proof = renderProof(criterion, screenshotUrls);
+  return criterion.result === "fail"
+    ? ["", `### ${title}`, ...proof]
+    : ["", "<details>", `<summary>${title}</summary>`, ...proof, "", "</details>"];
+}
+
+/** Screenshots no criterion cites, such as setup steps, kept out of the way. */
+function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInput): string[] {
+  const cited = new Set(outcome.criteria.flatMap((criterion) => criterion.screenshots));
+  const others = outcome.screenshots.filter((fileName) => !cited.has(fileName));
+  if (others.length === 0) {
     return [];
   }
   return [
     "",
     "<details>",
-    `<summary>Screenshots (${outcome.screenshots.length})</summary>`,
-    ...outcome.screenshots.flatMap((fileName) => [
+    `<summary>Other screenshots (${others.length})</summary>`,
+    ...others.flatMap((fileName) => [
       "",
       `**${escapeInline(fileName)}**`,
       "",
@@ -107,10 +127,11 @@ export function renderEvidenceComment(input: EvidenceCommentInput): string {
   return [
     commentMarker,
     ...renderSummary(input),
-    ...renderCriteria(input.outcome),
-    ...renderFailures(input),
-    ...(input.gifUrl === null ? [] : ["", `![Step-by-step run](${input.gifUrl})`]),
-    ...renderScreenshots(input),
+    ...renderTable(input.outcome),
+    ...input.outcome.criteria.flatMap((criterion) =>
+      renderCriterionSection(criterion, input.screenshotUrls),
+    ),
+    ...renderOtherScreenshots(input),
     "",
   ].join("\n");
 }

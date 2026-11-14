@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decompressFrames, parseGIF } from "gifuct-js";
 import { describe, expect, it } from "vitest";
-import { writeNoisePng, writeResults, writeSolidPng } from "./support/fixtures.js";
+import { writeResults, writeSolidPng } from "./support/fixtures.js";
 import {
   createHome,
   createRepository,
@@ -20,13 +19,36 @@ async function startRun() {
   return { context, started: started.json, resultsDirectory: createTemporaryDirectory() };
 }
 
-function decodeGif(path: string) {
-  const buffer = readFileSync(path);
-  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.length);
-  return decompressFrames(parseGIF(arrayBuffer as ArrayBuffer), true);
-}
-
 describe("finish", () => {
+  it("records each criterion's screenshots in the order listed, without building a GIF", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
+    writeSolidPng(join(started.screenshotDirectory, "002-saving.png"), [0, 0, 255]);
+    writeSolidPng(join(started.screenshotDirectory, "003-saved.png"), [0, 255, 0]);
+    const criteria = [
+      {
+        description: "Saving shows progress, then the note",
+        result: "pass",
+        screenshots: ["002-saving.png", "001-form.png", "003-saved.png"],
+      },
+      { description: "The saved note is listed", result: "pass", screenshots: ["003-saved.png"] },
+    ];
+    const results = writeResults(resultsDirectory, { ticket: "ABC-1", criteria });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(0);
+    expect(finished.json).not.toHaveProperty("gifPath");
+    expect(existsSync(join(started.runDirectory, "evidence.gif"))).toBe(false);
+    const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
+    expect(record.outcome).toEqual({
+      result: "pass",
+      ticket: "ABC-1",
+      criteria,
+      screenshots: ["001-form.png", "002-saving.png", "003-saved.png"],
+    });
+  });
+
   describe("screenshot membership", () => {
     it.each(["", ".", "..", "notes.txt", "directory.png"])(
       "rejects a reference outside the captured PNG file set: %j",
@@ -37,7 +59,7 @@ describe("finish", () => {
           mkdirSync(join(started.screenshotDirectory, screenshot));
         }
         const results = writeResults(resultsDirectory, {
-          criteria: [{ description: "It works", result: "pass", screenshot }],
+          criteria: [{ description: "It works", result: "pass", screenshots: [screenshot] }],
         });
 
         const finished = await runCli(["finish", "--results", results], context);
@@ -49,122 +71,35 @@ describe("finish", () => {
       },
     );
 
-    it("excludes PNG directories from evidence and GIF frames", async () => {
+    it("excludes PNG directories from the captured screenshots", async () => {
       const { context, started, resultsDirectory } = await startRun();
       mkdirSync(join(started.screenshotDirectory, "001-directory.png"));
       mkdirSync(join(started.screenshotDirectory, "002-directory.PNG"));
       writeSolidPng(join(started.screenshotDirectory, "003-captured.PNG"), [255, 0, 0]);
       const results = writeResults(resultsDirectory, {
-        criteria: [{ description: "It works", result: "pass", screenshot: "003-captured.PNG" }],
+        criteria: [{ description: "It works", result: "pass", screenshots: ["003-captured.PNG"] }],
       });
 
       const finished = await runCli(["finish", "--results", results], context);
 
       expect(finished.exitCode).toBe(0);
       expect(finished.json.screenshots).toEqual(["003-captured.PNG"]);
-      expect(finished.json.criteria[0].screenshot).toBe("003-captured.PNG");
-      expect(decodeGif(finished.json.gifPath)).toHaveLength(1);
-      const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
-      expect(record.outcome).toEqual({
-        result: "pass",
-        ticket: null,
-        criteria: [{ description: "It works", result: "pass", screenshot: "003-captured.PNG" }],
-        screenshots: ["003-captured.PNG"],
-        gifPath: finished.json.gifPath,
-      });
+      expect(finished.json.criteria[0].screenshots).toEqual(["003-captured.PNG"]);
     });
   });
-
-  it("stitches the screenshots, in order, into a step-by-step GIF", async () => {
-    const { context, started, resultsDirectory } = await startRun();
-    writeSolidPng(join(started.screenshotDirectory, "002-blue.png"), [0, 0, 255]);
-    writeSolidPng(join(started.screenshotDirectory, "001-red.png"), [255, 0, 0]);
-    writeSolidPng(join(started.screenshotDirectory, "003-green.png"), [0, 255, 0]);
-    const results = writeResults(resultsDirectory, {
-      ticket: "ABC-1",
-      criteria: [{ description: "It works", result: "pass", screenshot: "003-green.png" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(0);
-    expect(finished.json.result).toBe("pass");
-    const frames = decodeGif(finished.json.gifPath);
-    expect(frames).toHaveLength(3);
-    expect(frames.map((frame) => frame.delay)).toEqual([1500, 1500, 1500]);
-    const firstPixels = frames.map((frame) => Array.from(frame.patch.slice(0, 3)));
-    expect(firstPixels[0]![0]).toBeGreaterThan(200);
-    expect(firstPixels[1]![2]).toBeGreaterThan(200);
-    expect(firstPixels[2]![1]).toBeGreaterThan(200);
-  });
-
-  it("handles screenshots of different sizes, as after a browser resize", async () => {
-    const { context, started, resultsDirectory } = await startRun();
-    writeSolidPng(join(started.screenshotDirectory, "001-small.png"), [255, 0, 0], 20, 10);
-    writeSolidPng(join(started.screenshotDirectory, "002-large.png"), [0, 0, 255], 60, 40);
-    const results = writeResults(resultsDirectory, {
-      criteria: [{ description: "It works", result: "pass" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(0);
-    const frames = decodeGif(finished.json.gifPath);
-    expect(frames).toHaveLength(2);
-    expect(frames[0]!.dims.width).toBe(frames[1]!.dims.width);
-    expect(frames[0]!.dims.height).toBe(frames[1]!.dims.height);
-  });
-
-  it.each([
-    [12, 70000, 11, 65535],
-    [70000, 12, 1280, 1],
-    [12, 65535, 12, 65535],
-  ])("preserves GIF format dimensions for a %i x %i screenshot", async (
-    width, height, expectedWidth, expectedHeight,
-  ) => {
-    const { context, started, resultsDirectory } = await startRun();
-    writeSolidPng(join(started.screenshotDirectory, "001-page.png"), [0, 255, 0], width, height);
-    const results = writeResults(resultsDirectory, {
-      criteria: [{ description: "Full page captured", result: "pass", screenshot: "001-page.png" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(0);
-    expect(finished.json.ok).toBe(true);
-    const frames = decodeGif(finished.json.gifPath);
-    expect(frames).toHaveLength(1);
-    expect(frames[0]!.dims).toMatchObject({ width: expectedWidth, height: expectedHeight });
-    expect(frames[0]!.patch).toHaveLength(expectedWidth * expectedHeight * 4);
-    const centerPixelOffset = Math.floor(expectedHeight / 2) * expectedWidth * 4;
-    expect(frames[0]!.patch[centerPixelOffset]).toBeLessThan(50);
-    expect(frames[0]!.patch[centerPixelOffset + 1]).toBeGreaterThan(200);
-  });
-
-  it("keeps a long run under the 10 MiB image limit", async () => {
-    const { context, started, resultsDirectory } = await startRun();
-    for (let step = 1; step <= 14; step += 1) {
-      const name = `${String(step).padStart(3, "0")}-step.png`;
-      writeNoisePng(join(started.screenshotDirectory, name), 1200, 800);
-    }
-    const results = writeResults(resultsDirectory, {
-      criteria: [{ description: "It works", result: "pass" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(0);
-    expect(statSync(finished.json.gifPath).size).toBeLessThanOrEqual(10 * 1024 * 1024);
-    expect(decodeGif(finished.json.gifPath).length).toBeGreaterThan(1);
-  }, 120_000);
 
   it("exits 1 and still produces evidence when a criterion fails", async () => {
     const { context, started, resultsDirectory } = await startRun();
     writeSolidPng(join(started.screenshotDirectory, "001-broken.png"), [255, 0, 0]);
     const results = writeResults(resultsDirectory, {
       criteria: [
-        { description: "It loads", result: "pass" },
-        { description: "It saves", result: "fail", screenshot: "001-broken.png", note: "500 error" },
+        { description: "It loads", result: "pass", screenshots: [] },
+        {
+          description: "It saves",
+          result: "fail",
+          screenshots: ["001-broken.png"],
+          note: "500 error",
+        },
       ],
     });
 
@@ -173,52 +108,47 @@ describe("finish", () => {
     expect(finished.exitCode).toBe(1);
     expect(finished.json.ok).toBe(true);
     expect(finished.json.result).toBe("fail");
-    expect(existsSync(finished.json.gifPath)).toBe(true);
-  });
-
-  it("still records the outcome when the GIF cannot be built", async () => {
-    const { context, started, resultsDirectory } = await startRun();
-    writeFileSync(join(started.screenshotDirectory, "001-broken.png"), "not a png");
-    const results = writeResults(resultsDirectory, {
-      criteria: [{ description: "It saves", result: "fail", note: "500 error" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(1);
-    expect(finished.json.result).toBe("fail");
-    expect(finished.json.gifPath).toBeNull();
-    expect(finished.json.warnings.join(" ")).toContain("001-broken.png");
-  });
-
-  it("finishes without a GIF when there are no screenshots", async () => {
-    const { context, resultsDirectory } = await startRun();
-    const results = writeResults(resultsDirectory, {
-      criteria: [{ description: "It works", result: "fail", note: "The page never loaded" }],
-    });
-
-    const finished = await runCli(["finish", "--results", results], context);
-
-    expect(finished.exitCode).toBe(1);
-    expect(finished.json.gifPath).toBeNull();
+    const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
+    expect(record.outcome.result).toBe("fail");
+    expect(record.outcome.criteria[1].screenshots).toEqual(["001-broken.png"]);
   });
 
   it.each([
     ["no criteria", { criteria: [] }, /criteria/],
-    ["an unknown result", { criteria: [{ description: "x", result: "maybe" }] }, /result/],
-    ["a missing description", { criteria: [{ result: "pass" }] }, /description/],
+    [
+      "an unknown result",
+      { criteria: [{ description: "x", result: "maybe", screenshots: [] }] },
+      /result/,
+    ],
+    ["a missing description", { criteria: [{ result: "pass", screenshots: [] }] }, /description/],
+    [
+      "screenshots that are not a list",
+      { criteria: [{ description: "x", result: "pass", screenshots: "nope.png" }] },
+      /screenshots/,
+    ],
     [
       "a screenshot outside the run",
-      { criteria: [{ description: "x", result: "pass", screenshot: "../../secret.png" }] },
+      { criteria: [{ description: "x", result: "pass", screenshots: ["../../secret.png"] }] },
       /screenshot/,
     ],
     [
+      "the same screenshot twice in one criterion",
+      { criteria: [{ description: "x", result: "pass", screenshots: ["001-form.png", "001-form.png"] }] },
+      /001-form\.png.*more than once/,
+    ],
+    [
+      "a screenshot name that is not a string",
+      { criteria: [{ description: "x", result: "pass", screenshots: [5] }] },
+      /file name/,
+    ],
+    [
       "a screenshot that does not exist",
-      { criteria: [{ description: "x", result: "pass", screenshot: "nope.png" }] },
+      { criteria: [{ description: "x", result: "pass", screenshots: ["nope.png"] }] },
       /nope\.png/,
     ],
   ])("rejects results with %s", async (_name, content, expectedMessage) => {
-    const { context, resultsDirectory } = await startRun();
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
     const results = writeResults(resultsDirectory, content);
 
     const finished = await runCli(["finish", "--results", results], context);
@@ -228,10 +158,92 @@ describe("finish", () => {
     expect(finished.json.error.message).toMatch(expectedMessage);
   });
 
+  it("warns once, naming each criterion that cites no screenshots", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
+    const results = writeResults(resultsDirectory, {
+      criteria: [
+        { description: "The form appears", result: "pass", screenshots: ["001-form.png"] },
+        { description: "The request is sent once", result: "pass", screenshots: [] },
+        { description: "No error is logged", result: "pass", screenshots: [] },
+      ],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(0);
+    expect(finished.json.warnings).toHaveLength(1);
+    expect(finished.json.warnings[0]).toContain('"The request is sent once"');
+    expect(finished.json.warnings[0]).toContain('"No error is logged"');
+    expect(finished.json.warnings[0]).not.toContain("The form appears");
+  });
+
+  it("gives no warning when every criterion cites a screenshot", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "The form appears", result: "pass", screenshots: ["001-form.png"] }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.json.warnings).toEqual([]);
+  });
+
+  it.each([
+    ["empty", 0],
+    ["over GitHub's 10 MiB image limit", 10 * 1024 * 1024 + 1],
+  ])("exits 2 naming a screenshot that is %s, even when no criterion cites it", async (
+    _problem,
+    size,
+  ) => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
+    writeFileSync(join(started.screenshotDirectory, "002-unusable.png"), Buffer.alloc(size));
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "The form appears", result: "pass", screenshots: ["001-form.png"] }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(2);
+    expect(finished.json.error.code).toBe("screenshot_invalid");
+    expect(finished.json.error.message).toContain("002-unusable.png");
+    const record = JSON.parse(readFileSync(join(started.runDirectory, "run.json"), "utf8"));
+    expect(record.outcome).toBeUndefined();
+  });
+
+  it("accepts a screenshot of exactly 10 MiB", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeFileSync(join(started.screenshotDirectory, "001-large.png"), Buffer.alloc(10 * 1024 * 1024, 1));
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "The page loads", result: "pass", screenshots: ["001-large.png"] }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(0);
+  });
+
+  it("rejects the old single screenshot field and names its replacement", async () => {
+    const { context, started, resultsDirectory } = await startRun();
+    writeSolidPng(join(started.screenshotDirectory, "001-form.png"), [255, 0, 0]);
+    const results = writeResults(resultsDirectory, {
+      criteria: [{ description: "The form appears", result: "pass", screenshot: "001-form.png" }],
+    });
+
+    const finished = await runCli(["finish", "--results", results], context);
+
+    expect(finished.exitCode).toBe(2);
+    expect(finished.json.error.code).toBe("results_invalid");
+    expect(finished.json.error.message).toContain('"screenshot"');
+    expect(finished.json.error.message).toContain("screenshots: [...]");
+  });
+
   it("fails clearly when there is no run to finish", async () => {
     const repository = createRepository();
     const results = writeResults(createTemporaryDirectory(), {
-      criteria: [{ description: "x", result: "pass" }],
+      criteria: [{ description: "x", result: "pass", screenshots: [] }],
     });
 
     const finished = await runCli(["finish", "--results", results], {

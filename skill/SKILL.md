@@ -1,6 +1,6 @@
 ---
 name: pr-evidence
-description: Test the current branch in a real browser and post screenshots and a GIF as evidence on its pull request. Use when the user asks to gather, capture or post evidence for a branch, PR or ticket.
+description: Test the current branch in a real browser and post screenshots of each criterion as evidence on its pull request. Use when the user asks to gather, capture or post evidence for a branch, PR or ticket.
 ---
 
 # pr-evidence
@@ -50,7 +50,7 @@ Once the developer approves the draft, write the file and ask them to commit it,
 
 If the app needs several processes or setup steps, such as Docker services, migrations and seed data before the API and front end, one foreground command may not be enough. Offer the developer these choices:
 
-- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence#apps-with-several-processes). Use this if the repo will be tested again.
+- **A wrapper script**, committed by the developer and named as `start`. It does the setup, then stays in the foreground, so the tool owns and stops the app. Services the script leaves running on their own, such as those from `docker compose up -d`, are not stopped: tell the developer they are still running. See [Apps with several processes](https://github.com/debrine/pr-evidence/blob/main/docs/configuration.md#apps-with-several-processes). Use this if the repo will be tested again.
 - **`--url`**, with you starting the stack yourself. The tool does not own this app, and `finish` and `stop` leave it running. When the run ends, or is abandoned, stop everything you started and tell the developer about anything you left behind, such as seeded data.
 
 ## 2. Find the ticket
@@ -120,7 +120,7 @@ For each criterion, drive the app as a user would:
 
 `open` comes first, because `resize` needs a page. Element ids change after every action, so read the ids from the output of the last command and never reuse older ones. Check that each action succeeded before moving on.
 
-Take a PNG screenshot after each meaningful step, into `screenshotDirectory`, named `NNN-short-description.png`. The numbers set the order of the GIF.
+Take a PNG screenshot after each meaningful step, into `screenshotDirectory`, named `NNN-short-description.png`. The numbers set the order of the screenshots that no criterion cites.
 
 Judge each criterion strictly from what you observed, after you observed it. Look at each screenshot you cite, to confirm it shows what you claim. In a note, state only what you directly observed in this run. Check anything you are inferring first, or leave it out. If you could not test a criterion, it fails, and the note says why.
 
@@ -134,23 +134,24 @@ Write `<runDirectory>/results.json`:
 {
   "ticket": "ABC-123",
   "criteria": [
-    { "description": "The login form appears", "result": "pass", "screenshot": "001-login-form.png" },
-    { "description": "Saving shows a confirmation", "result": "fail", "screenshot": "004-save.png", "note": "A 500 error appeared" }
+    { "description": "The login form appears", "result": "pass", "screenshots": ["001-login-form.png"] },
+    { "description": "Saving shows a confirmation", "result": "fail", "screenshots": ["003-saving.png", "004-save.png"], "note": "A 500 error appeared" },
+    { "description": "The note is sent to the server once", "result": "pass", "screenshots": [], "note": "One POST /notes request in the network log" }
   ]
 }
 ```
 
-`ticket` is `null` if none was used. `screenshot` is a file name from `screenshotDirectory`, and every failed criterion that has a relevant screenshot should name it. Then:
+`ticket` is `null` if none was used. `screenshots` lists file names from `screenshotDirectory`, in the order a reviewer should see them, such as before, during and after. Cite at least one screenshot for every criterion with a visible outcome. One screenshot may prove several criteria. If a criterion has no visible outcome, give `"screenshots": []` and say in the note what you checked. The PR comment shows each criterion with its note and screenshots, and keeps the screenshots no criterion cites in one collapsed section. Then:
 
 ```sh
 {{helper}} finish --results <runDirectory>/results.json
 ```
 
-This stops the app and builds the GIF. Exit code 1 means a criterion failed. The run still produced evidence, so carry on. Do not try to fix anything. Show the developer any `warnings`. On exit code 2, show the error and stop before publishing.
+This stops the app and records the results. Exit code 1 means a criterion failed. The run still produced evidence, so carry on. Do not try to fix anything. Show the developer any `warnings`. On exit code 2, show the error and stop before publishing.
 
 ## 8. Review
 
-Unless `--yes` was given, show the developer the result of each criterion and the path of the GIF and the screenshots, and ask whether to publish. Warn them that GitHub offers no supported way to delete an uploaded file, so they should check the screenshots for sensitive data first.
+Unless `--yes` was given, show the developer the result of each criterion, the screenshots it cites and the path of `screenshotDirectory`, and ask whether to publish. Warn them that GitHub offers no supported way to delete an uploaded file, so they should check the screenshots for sensitive data first.
 
 If they decline, stop. The evidence stays in `runDirectory`.
 
@@ -164,4 +165,4 @@ Report the `commentUrl` and any `warnings`.
 
 - `commit_not_on_github`: nothing was uploaded and the evidence is saved. Ask the developer to push the tested commit, then publish again. Do not push it yourself.
 - `no_pull_request`: the evidence is saved. Tell the developer to open a PR and then ask you to publish, or to run `{{helper}} publish` themselves.
-- Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence#how-the-upload-works) before describing what was uploaded or posted.
+- Any other failure: show the error and inspect the PR before retrying. Consult the [upload failure guidance](https://github.com/debrine/pr-evidence/blob/main/docs/publishing.md#how-the-upload-works) before describing what was uploaded or posted.

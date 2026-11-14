@@ -7,14 +7,24 @@ export interface Uploader {
   upload(filePath: string): Promise<string>;
 }
 
-export const imageLimitBytes = 10 * 1024 * 1024;
+const imageLimitBytes = 10 * 1024 * 1024;
+
+/** Why GitHub would refuse an image of this size, or null if it accepts it. */
+export function imageSizeProblem(size: number): string | null {
+  if (size === 0) {
+    return "it is empty";
+  }
+  if (size > imageLimitBytes) {
+    return `it is ${size} bytes, over GitHub's ${imageLimitBytes}-byte image limit`;
+  }
+  return null;
+}
 const uploadTimeoutMilliseconds = 60_000;
 const attachmentPath =
   /^\/user-attachments\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const contentTypes: Record<string, string> = {
   ".png": "image/png",
-  ".gif": "image/gif",
 };
 
 function failed(filePath: string, problem: string): CliError {
@@ -41,9 +51,9 @@ export class GitHubAttachmentUploader implements Uploader {
     if (contentType === undefined) {
       throw failed(filePath, "unsupported file type.");
     }
-    const { size } = statSync(filePath);
-    if (size === 0 || size > imageLimitBytes) {
-      throw failed(filePath, `size ${size} is outside the allowed range.`);
+    const sizeProblem = imageSizeProblem(statSync(filePath).size);
+    if (sizeProblem !== null) {
+      throw failed(filePath, `${sizeProblem}.`);
     }
 
     const query = new URLSearchParams({
