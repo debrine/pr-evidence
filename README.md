@@ -1,8 +1,8 @@
 # pr-evidence
 
-Your coding agent tests a branch in a real browser and posts the screenshots and a GIF on its pull request.
+Your coding agent tests a branch in a real browser and posts each criterion it checked, with the screenshots that prove it, on its pull request.
 
-[![The evidence comment pr-evidence posted on a demo pull request: a passing result, a table of criteria and a GIF of the run](https://github.com/debrine/pr-evidence/raw/main/docs/images/evidence-comment.png)](https://github.com/debrine/pr-evidence-demo/pull/1)
+[![The evidence comment pr-evidence posted on a demo pull request: a passing result, a table of criteria and a section of screenshots for each criterion](https://github.com/debrine/pr-evidence/raw/main/docs/images/evidence-comment.png)](https://github.com/debrine/pr-evidence-demo/pull/1)
 
 This comment was posted from a real run on [a demo pull request](https://github.com/debrine/pr-evidence-demo/pull/1) that fixes a double-clicked Save adding a note twice.
 
@@ -10,12 +10,12 @@ This comment was posted from a real run on [a demo pull request](https://github.
 
 1. You ask your agent to gather evidence for the branch.
 2. It reads the diff, the PR description and the ticket, and proposes what to test. You approve or edit the list.
-3. It starts your app, drives a real browser against it, and judges each criterion with a screenshot.
+3. It starts your app, drives a real browser against it, and judges each criterion with the screenshots that show it.
 4. You review the evidence, and one comment on the PR is created or updated.
 
 <!-- TRANSCRIPT: replace with 10-15 lines trimmed from the showcase run -->
 
-If a criterion fails, the comment says "Failed", marks that row "Fail" and shows the screenshot of the failure. The tool only reports. It never changes the code under test.
+Each criterion gets its own section, with its note and screenshots. Passed criteria are collapsed. If a criterion fails, the comment says "Failed", marks that row "Fail" and shows that criterion's section open. The tool only reports. It never changes the code under test.
 
 ## Quickstart
 
