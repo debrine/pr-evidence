@@ -17,8 +17,8 @@ import type { RepoState } from "./repoState.js";
 export interface CriterionResult {
   description: string;
   result: "pass" | "fail";
-  /** File name in the run's screenshot directory. */
-  screenshot?: string;
+  /** File names in the run's screenshot directory, in the order to show them. */
+  screenshots: string[];
   note?: string;
 }
 
@@ -26,9 +26,8 @@ export interface RunOutcome {
   result: "pass" | "fail";
   ticket: string | null;
   criteria: CriterionResult[];
-  /** Screenshot file names in step order. */
+  /** Every captured screenshot file name, in step order. */
   screenshots: string[];
-  gifPath: string | null;
 }
 
 export interface RunRecord extends RepoState {
@@ -99,10 +98,6 @@ export function createRun(repoState: RepoState, url: string): string {
   writeRunRecord(runDirectory, record);
   writeFileSync(latestRunPointerPath(record.repositoryKey, record.rootPath), record.sha);
   return runDirectory;
-}
-
-export function gifPathOf(runDirectory: string): string {
-  return join(runDirectory, "evidence.gif");
 }
 
 export function listScreenshots(runDirectory: string): string[] {

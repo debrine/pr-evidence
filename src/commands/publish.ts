@@ -64,6 +64,14 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
   if (repository === null) {
     throw new CliError("no_github_remote", "The origin remote is not a GitHub repository.");
   }
+  // Runs finished before screenshots were listed per criterion have no lists to lay out.
+  if (outcome.criteria.some((criterion) => !Array.isArray(criterion.screenshots))) {
+    throw new CliError(
+      "run_outdated",
+      "This run was finished by an earlier version of pr-evidence. Run it again to publish it.",
+      { runDirectory },
+    );
+  }
   assertSupportedHost(repository.host);
 
   const token = readUploadToken(repository.host);
@@ -86,7 +94,6 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
     host: repository.host,
   });
   // Everything is uploaded before the comment is touched, so a failed upload leaves the PR as it was.
-  const gifUrl = outcome.gifPath === null ? null : await uploader.upload(outcome.gifPath);
   const screenshotUrls = await uploadScreenshots(uploader, runDirectory, outcome.screenshots);
 
   const body = renderEvidenceComment({
@@ -94,7 +101,6 @@ export async function publish(repositoryPath: string): Promise<Record<string, un
     record,
     outcome,
     screenshotUrls,
-    gifUrl,
     headDiffers,
   });
   // Author is checked as well as the marker: anyone can post the marker, and

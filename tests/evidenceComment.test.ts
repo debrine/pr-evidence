@@ -15,9 +15,8 @@ function renderWithBranch(branch: string | null): string {
       url: "http://localhost:3000",
       createdAt: "2026-11-06T00:00:00Z",
     },
-    outcome: { result: "pass", ticket: null, criteria: [], screenshots: [], gifPath: null },
+    outcome: { result: "pass", ticket: null, criteria: [], screenshots: [] },
     screenshotUrls: new Map(),
-    gifUrl: null,
     headDiffers: false,
   });
 }

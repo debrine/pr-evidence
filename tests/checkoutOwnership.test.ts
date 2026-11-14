@@ -13,7 +13,7 @@ function secondCheckout(repositoryPath: string): string {
   return checkout;
 }
 
-const criteria = { criteria: [{ description: "It works", result: "pass" }] };
+const criteria = { criteria: [{ description: "It works", result: "pass", screenshots: [] }] };
 
 describe("checkout ownership", () => {
   it.each(["external", "configured"])("refuses a same-commit %s start before changing evidence", async (mode) => {

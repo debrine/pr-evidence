@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startFakeGitHub, type FakeGitHub, type FakeGitHubOptions } from "./support/fakeGitHub.js";
@@ -17,8 +17,8 @@ const branch = "feature/login";
 const passingResults = {
   ticket: "ABC-1",
   criteria: [
-    { description: "The login form appears", result: "pass", screenshot: "001-login.png" },
-    { description: "Signing in shows the dashboard", result: "pass" },
+    { description: "The login form appears", result: "pass", screenshots: ["001-login.png"] },
+    { description: "Signing in shows the dashboard", result: "pass", screenshots: ["002-dashboard.png"] },
   ],
 };
 
@@ -28,6 +28,8 @@ interface RunSetup {
   remoteUrl?: string;
   ghToken?: string | null;
   dirty?: boolean;
+  /** Screenshot file names to capture. Defaults to the two the passing results cite. */
+  screenshots?: string[];
 }
 
 async function finishedRun(setup: RunSetup = {}) {
@@ -49,15 +51,33 @@ async function finishedRun(setup: RunSetup = {}) {
   }
   const startArgs = ["start", "--url", app.url, ...(setup.dirty ? ["--allow-dirty"] : [])];
   const started = await runCli(startArgs, context);
-  writeSolidPng(join(started.json.screenshotDirectory, "001-login.png"), [255, 0, 0]);
-  writeSolidPng(join(started.json.screenshotDirectory, "002-dashboard.png"), [0, 0, 255]);
+  for (const fileName of setup.screenshots ?? ["001-login.png", "002-dashboard.png"]) {
+    writeSolidPng(join(started.json.screenshotDirectory, fileName), [255, 0, 0]);
+  }
   const results = writeResults(createTemporaryDirectory(), setup.results ?? passingResults);
   await runCli(["finish", "--results", results], context);
   return { repository, github, context, started: started.json };
 }
 
+interface Section {
+  title: string;
+  collapsed: boolean;
+  content: string;
+}
+
+/** Splits the comment after its table into criterion sections: a collapsed `<details>` or a `###` heading. */
+function sectionsOf(body: string): Section[] {
+  const sectionPattern =
+    /<details>\n<summary>(.*)<\/summary>\n([\s\S]*?)\n<\/details>|^### (.*)\n([\s\S]*?)(?=\n<details>|\n### |$(?![\s\S]))/gm;
+  return [...body.matchAll(sectionPattern)].map((match) =>
+    match[1] !== undefined
+      ? { title: match[1], collapsed: true, content: match[2]! }
+      : { title: match[3]!, collapsed: false, content: match[4]! },
+  );
+}
+
 describe("publish", () => {
-  it("uploads the GIF and screenshots with the documented request shape", async () => {
+  it("uploads every screenshot, and no GIF, with the documented request shape", async () => {
     const { github, context } = await finishedRun();
 
     const published = await runCli(["publish"], context);
@@ -66,20 +86,17 @@ describe("publish", () => {
     expect(github.uploads.map((upload) => upload.name).sort()).toEqual([
       "001-login.png",
       "002-dashboard.png",
-      "evidence.gif",
     ]);
-    const gif = github.uploads.find((upload) => upload.name === "evidence.gif")!;
-    expect(gif.contentType).toBe("image/gif");
-    expect(gif.repositoryId).toBe("4242");
-    expect(gif.authorization).toBe("Bearer gho_testtoken");
-    expect(gif.requestContentType).toBe("application/octet-stream");
-    expect(gif.accept).toBe("application/vnd.github+json");
-    expect(gif.size).toBeGreaterThan(0);
     const screenshot = github.uploads.find((upload) => upload.name === "001-login.png")!;
     expect(screenshot.contentType).toBe("image/png");
+    expect(screenshot.repositoryId).toBe("4242");
+    expect(screenshot.authorization).toBe("Bearer gho_testtoken");
+    expect(screenshot.requestContentType).toBe("application/octet-stream");
+    expect(screenshot.accept).toBe("application/vnd.github+json");
+    expect(screenshot.size).toBeGreaterThan(0);
   });
 
-  it("posts one comment with the result, commit, ticket, criteria, GIF and collapsed screenshots", async () => {
+  it("posts one comment with the result, commit, ticket, criteria and screenshots", async () => {
     const { repository, github, context } = await finishedRun();
 
     const published = await runCli(["publish"], context);
@@ -93,10 +110,8 @@ describe("publish", () => {
     expect(body).toContain(repository.headSha);
     expect(body).toContain("ABC-1");
     expect(body).toMatch(/\| Pass \| The login form appears/);
-    expect(body).toMatch(/!\[.*\]\(https:\/\/github\.com\/user-attachments\/assets\/[0-9a-f-]+\)/);
-    expect(body).toContain("<details>");
-    expect(body).toContain("001-login.png");
-    expect(body).toContain("002-dashboard.png");
+    expect(body).toMatch(/!\[001-login\.png\]\(https:\/\/github\.com\/user-attachments\/assets\/[0-9a-f-]+\)/);
+    expect(body).toMatch(/!\[002-dashboard\.png\]\(https:\/\/github\.com\/user-attachments\/assets\/[0-9a-f-]+\)/);
   });
 
   it("replaces its own comment on a rerun instead of adding another", async () => {
@@ -147,17 +162,19 @@ describe("publish", () => {
     expect(github.comments[0]!.body).toContain("planted");
   });
 
-  it("shows a failing criterion's screenshot and note in the open", async () => {
+  it("lays out a table, then one section per criterion in results order, failures expanded", async () => {
     const { github, context } = await finishedRun({
       results: {
         ticket: null,
         criteria: [
+          { description: "The login form appears", result: "pass", screenshots: ["001-login.png"] },
           {
             description: "Saving works",
             result: "fail",
-            screenshot: "002-dashboard.png",
+            screenshots: ["002-dashboard.png"],
             note: "A 500 error appeared",
           },
+          { description: "Signing out works", result: "pass", screenshots: [] },
         ],
       },
     });
@@ -167,17 +184,41 @@ describe("publish", () => {
     expect(published.exitCode).toBe(0);
     const { body } = github.comments[0]!;
     expect(body).toContain("Failed");
-    expect(body).toMatch(/\| Fail \| Saving works \| A 500 error appeared/);
     expect(body).toContain("No ticket");
-    const beforeDetails = body.split("<details>")[0]!;
-    expect(beforeDetails).toMatch(/!\[002-dashboard\.png\]\(https:/);
+    expect(body).toContain(
+      [
+        "| Result | Criterion |",
+        "| --- | --- |",
+        "| Pass | The login form appears |",
+        "| Fail | Saving works |",
+        "| Pass | Signing out works |",
+      ].join("\n"),
+    );
+    const sections = sectionsOf(body);
+    expect(sections.map((section) => section.title)).toEqual([
+      "Pass: The login form appears",
+      "Fail: Saving works",
+      "Pass: Signing out works",
+    ]);
+    expect(sections.map((section) => section.collapsed)).toEqual([true, false, true]);
+    expect(sections[0]!.content).toMatch(/!\[001-login\.png\]\(https:/);
+    expect(sections[1]!.content).toContain("A 500 error appeared");
+    expect(sections[1]!.content).toMatch(/!\[002-dashboard\.png\]\(https:/);
+    expect(sections[2]!.content).toContain("No screenshots");
+    expect(sections[2]!.content).not.toContain("![");
   });
 
-  it("keeps criterion text from breaking the table or injecting markup", async () => {
+  it("shows a criterion's screenshots in listed order and keeps uncited ones in one collapsed section", async () => {
     const { github, context } = await finishedRun({
+      screenshots: ["001-setup.png", "002-form.png", "003-saving.png", "004-saved.png", "005-teardown.png"],
       results: {
         criteria: [
-          { description: "a | b\nc <img src=x>", result: "pass", note: "x | y" },
+          {
+            description: "Saving shows progress, then the note",
+            result: "fail",
+            screenshots: ["004-saved.png", "003-saving.png"],
+          },
+          { description: "The saved note is listed", result: "pass", screenshots: ["004-saved.png"] },
         ],
       },
     });
@@ -185,8 +226,45 @@ describe("publish", () => {
     await runCli(["publish"], context);
 
     const { body } = github.comments[0]!;
-    expect(body).toContain("a \\| b c &lt;img src=x&gt;");
+    const imageNames = (content: string) =>
+      [...content.matchAll(/!\[([^\]]+)\]\(https:/g)].map((match) => match[1]);
+    const sections = sectionsOf(body);
+    expect(sections.map((section) => section.title)).toEqual([
+      "Fail: Saving shows progress, then the note",
+      "Pass: The saved note is listed",
+      "Other screenshots (3)",
+    ]);
+    expect(imageNames(sections[0]!.content)).toEqual(["004-saved.png", "003-saving.png"]);
+    expect(imageNames(sections[1]!.content)).toEqual(["004-saved.png"]);
+    expect(sections[2]!.collapsed).toBe(true);
+    expect(imageNames(sections[2]!.content)).toEqual(["001-setup.png", "002-form.png", "005-teardown.png"]);
+    expect(imageNames(body).filter((name) => name === "003-saving.png")).toHaveLength(1);
+  });
+
+  it("leaves out the other screenshots section when every screenshot is cited", async () => {
+    const { github, context } = await finishedRun();
+
+    await runCli(["publish"], context);
+
+    expect(github.comments[0]!.body).not.toContain("Other screenshots");
+  });
+
+  it("keeps criterion text from breaking the table or injecting markup", async () => {
+    const { github, context } = await finishedRun({
+      results: {
+        criteria: [
+          { description: "a | b\nc <img src=x>", result: "pass", screenshots: [], note: "x | y" },
+        ],
+      },
+    });
+
+    await runCli(["publish"], context);
+
+    const { body } = github.comments[0]!;
+    expect(body).toContain("| Pass | a \\| b c &lt;img src=x&gt; |");
+    expect(body).toContain("<summary>Pass: a \\| b c &lt;img src=x&gt;</summary>");
     expect(body).toContain("x \\| y");
+    expect(body).not.toContain("<img");
   });
 
   it("marks evidence from a dirty tree", async () => {
@@ -323,7 +401,7 @@ describe("publish", () => {
     expect(published.exitCode).toBe(2);
     expect(published.json.error.code).toBe("upload_failed");
     expect(github.comments).toHaveLength(0);
-    expect(existsSync(join(started.runDirectory, "evidence.gif"))).toBe(true);
+    expect(existsSync(join(started.screenshotDirectory, "001-login.png"))).toBe(true);
   });
 
   it("can retry after a failed upload", async () => {
@@ -398,6 +476,22 @@ describe("publish", () => {
     const published = await runCli(["publish"], context);
 
     expect(published.exitCode).toBe(0);
+  });
+
+  it("refuses a run finished by an earlier version, before any upload", async () => {
+    const { github, context, started } = await finishedRun();
+    const recordPath = join(started.runDirectory, "run.json");
+    const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    record.outcome.criteria = [{ description: "The login form appears", result: "pass", screenshot: "001-login.png" }];
+    record.outcome.gifPath = null;
+    writeFileSync(recordPath, JSON.stringify(record));
+
+    const published = await runCli(["publish"], context);
+
+    expect(published.exitCode).toBe(2);
+    expect(published.json.error.code).toBe("run_outdated");
+    expect(published.json.error.message).toMatch(/run it again/i);
+    expect(github.uploads).toHaveLength(0);
   });
 
   it("refuses a run that has not been finished", async () => {

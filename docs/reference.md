@@ -50,11 +50,13 @@ The skill runs these for you. Each prints one JSON document. The exit code is 0 
 | --- | --- |
 | `setup` | Install the helper and the skill, and check prerequisites |
 | `start` | Begin a run for the current commit |
-| `finish --results <file>` | Stop the app, record results and build the GIF |
+| `finish --results <file>` | Stop the app and record results |
 | `stop` | Abandon a run |
 | `publish` | Publish saved evidence, as described in [Where evidence is kept](publishing.md#where-evidence-is-kept) |
 
-`finish` reports GIF encoding or size-limit failures as warnings and keeps the results and screenshots, with `gifPath: null`. Review those warnings before publishing.
+`finish` fails with `screenshot_invalid`, and records nothing, if a screenshot is empty or over GitHub's 10 MiB image limit. It warns about each criterion that cites no screenshots. Review those warnings before publishing.
+
+`publish` refuses a run finished by an earlier version with `run_outdated`. Run it again to publish it.
 
 ## Running a helper command yourself
 

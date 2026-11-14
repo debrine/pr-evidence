@@ -1,6 +1,6 @@
 # Publishing
 
-What to check before you publish, where evidence is kept, and how the upload to GitHub works.
+What to check before you publish, what the comment shows, where evidence is kept, and how the upload to GitHub works.
 
 ## Before you publish
 
@@ -14,6 +14,15 @@ What to check before you publish, where evidence is kept, and how the upload to 
 - PRs from forks are not found.
 - Each person who publishes on a PR gets their own evidence comment, so nobody can edit another person's evidence.
 
+## What the comment shows
+
+1. The result, the tested commit, the ticket and a link comparing the commit with the branch, plus a warning if the run had uncommitted changes or the PR head differs from the tested commit.
+2. A table with the result of each criterion.
+3. A section for each criterion, in the approved order, with its note and the screenshots it cites, in the order listed. A criterion that cites none says "No screenshots". Failed criteria are open. Passed criteria are collapsed.
+4. "Other screenshots", collapsed, holding the screenshots no criterion cites, such as setup steps. It is left out when every screenshot is cited.
+
+Publishing again replaces the comment.
+
 ## Where evidence is kept
 
 Evidence is saved in `~/.pr-evidence/<repository-key>/<sha>/`. On `start`, runs whose records have not changed in 14 days are pruned, except those with a live app owned by this tool. Running the same commit again replaces its earlier evidence. If the branch has no PR yet, the evidence is kept subject to that retention rule. After opening a PR, run the installed helper's `publish`, as shown in [Running a helper command yourself](reference.md#running-a-helper-command-yourself): it prefers a finished run for the checked-out commit, otherwise selects this checkout's latest run, which must be finished. It finds the PR using the selected run's saved branch and origin repository.
@@ -26,6 +35,6 @@ To test two branches at once, use separate `git worktree` checkouts. Their apps 
 
 GitHub has no documented API for this. The upload uses the endpoint behind the comment box, authenticated with your `gh` token, so it could change without notice. `npm run test:smoke` checks it with one real upload, which cannot be deleted afterwards.
 
-PNG and GIF uploads must be nonempty and at most 10 MiB each. All files are uploaded before the PR comment is changed. If a later upload fails, earlier uploaded assets may remain even though the comment is untouched. A comment request failure can leave publication uncertain; inspect the PR before retrying.
+Screenshots must be nonempty PNGs of at most 10 MiB each. `finish` checks this before you review the run. All files are uploaded before the PR comment is changed. If a later upload fails, earlier uploaded assets may remain even though the comment is untouched. A comment request failure can leave publication uncertain; inspect the PR before retrying.
 
 The upload contract follows [no-mistakes](https://github.com/kunchenguid/no-mistakes) (MIT).
