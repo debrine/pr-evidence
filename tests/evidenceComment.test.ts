@@ -43,3 +43,14 @@ describe("evidence comment comparison links", () => {
     expect(renderWithBranch(null)).not.toContain("[compare with the branch]");
   });
 });
+
+describe("evidence comment footer", () => {
+  it("ends with a link to the npm package so readers can try pr-evidence", () => {
+    const comment = renderWithBranch("feature/login");
+    const lastLine = comment.trimEnd().split("\n").at(-1);
+
+    expect(lastLine).toBe(
+      "<sub>Want to try it yourself? Check out [pr-evidence on npm](https://www.npmjs.com/package/pr-evidence).</sub>",
+    );
+  });
+});

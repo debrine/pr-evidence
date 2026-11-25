@@ -3,6 +3,8 @@ import type { RepositoryIdentity } from "./repoState.js";
 
 export const commentMarker = "<!-- pr-evidence -->";
 
+const npmPackageUrl = "https://www.npmjs.com/package/pr-evidence";
+
 export interface EvidenceCommentInput {
   repository: RepositoryIdentity;
   record: RunRecord;
@@ -123,6 +125,16 @@ function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInpu
   ];
 }
 
+/** A small plug so reviewers who like the comment can find the tool. */
+function renderFooter(): string[] {
+  return [
+    "",
+    "---",
+    "",
+    `<sub>Want to try it yourself? Check out [pr-evidence on npm](${npmPackageUrl}).</sub>`,
+  ];
+}
+
 export function renderEvidenceComment(input: EvidenceCommentInput): string {
   return [
     commentMarker,
@@ -132,6 +144,7 @@ export function renderEvidenceComment(input: EvidenceCommentInput): string {
       renderCriterionSection(criterion, input.screenshotUrls),
     ),
     ...renderOtherScreenshots(input),
+    ...renderFooter(),
     "",
   ].join("\n");
 }
