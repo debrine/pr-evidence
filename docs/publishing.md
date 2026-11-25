@@ -20,6 +20,7 @@ What to check before you publish, what the comment shows, where evidence is kept
 2. A table with the result of each criterion.
 3. A section for each criterion, in the approved order, with its note and the screenshots it cites, in the order listed. A criterion that cites none says "No screenshots". Failed criteria are open. Passed criteria are collapsed.
 4. "Other screenshots", collapsed, holding the screenshots no criterion cites, such as setup steps. It is left out when every screenshot is cited.
+5. A small footer linking to [pr-evidence on npm](https://www.npmjs.com/package/pr-evidence), so a reviewer can try the tool.
 
 Publishing again replaces the comment.
 
