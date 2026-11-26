@@ -5,6 +5,13 @@ export const commentMarker = "<!-- pr-evidence -->";
 
 const npmPackageUrl = "https://www.npmjs.com/package/pr-evidence";
 
+/**
+ * Every screenshot shows at this height, so an open criterion fits on about one screen. GitHub turns
+ * a height with no width into a maximum height that keeps the aspect ratio, and links each image to
+ * its full size.
+ */
+const thumbnailHeight = 240;
+
 export interface EvidenceCommentInput {
   repository: RepositoryIdentity;
   record: RunRecord;
@@ -14,14 +21,22 @@ export interface EvidenceCommentInput {
   headDiffers: boolean;
 }
 
-/** Makes untrusted text safe for one line of Markdown, including inside a table cell. */
+/** Stops untrusted text being read as HTML. `&` goes first so the other entities stay intact. */
+function escapeHtml(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/**
+ * Makes untrusted text safe for one line of Markdown, such as a heading or a `<summary>`. It uses
+ * no backslash escapes, because GitHub shows those literally inside `<summary>`.
+ */
 function escapeInline(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("|", "\\|")
-    .replace(/\s*\n\s*/g, " ");
+  return escapeHtml(text).replace(/\s*\n\s*/g, " ");
+}
+
+/** Makes untrusted text safe inside a double-quoted HTML attribute. */
+function escapeAttribute(text: string): string {
+  return escapeHtml(text).replaceAll('"', "&quot;");
 }
 
 /** Encodes a branch name as one URL path segment that is also safe in a Markdown link destination. */
@@ -29,18 +44,27 @@ function encodeBranchForLink(branch: string): string {
   return encodeURIComponent(branch).replaceAll("(", "%28").replaceAll(")", "%29");
 }
 
-function image(fileName: string, url: string): string {
-  return `![${escapeInline(fileName)}](${url})`;
+function thumbnail(fileName: string, url: string): string {
+  const source = escapeAttribute(url);
+  return `<img src="${source}" height="${thumbnailHeight}" alt="${escapeAttribute(fileName)}">`;
+}
+
+/** One line of thumbnails, so they sit side by side and wrap to the comment's width. */
+function thumbnailRow(fileNames: string[], screenshotUrls: Map<string, string>): string {
+  return fileNames.map((fileName) => thumbnail(fileName, screenshotUrls.get(fileName)!)).join(" ");
 }
 
 function renderSummary(input: EvidenceCommentInput): string[] {
   const { repository, record, outcome } = input;
   const repositoryUrl = `https://${repository.host}/${repository.owner}/${repository.name}`;
+  const passedCount = outcome.criteria.filter((criterion) => criterion.result === "pass").length;
+  const failedCount = outcome.criteria.length - passedCount;
   const lines = [
     `## PR evidence: ${outcome.result === "pass" ? "Passed" : "Failed"}`,
     "",
     `- **Tested commit:** [${record.sha}](${repositoryUrl}/commit/${record.sha})`,
     `- **Ticket:** ${outcome.ticket === null ? "No ticket" : escapeInline(outcome.ticket)}`,
+    `- **Criteria:** ${passedCount} passed, ${failedCount} failed`,
   ];
   if (record.branch !== null) {
     lines.push(
@@ -64,43 +88,32 @@ function renderSummary(input: EvidenceCommentInput): string[] {
   return lines;
 }
 
-function resultLabel(criterion: CriterionResult): string {
-  return criterion.result === "pass" ? "Pass" : "Fail";
-}
-
-function renderTable(outcome: RunOutcome): string[] {
-  return [
-    "",
-    "| Result | Criterion |",
-    "| --- | --- |",
-    ...outcome.criteria.map(
-      (criterion) => `| ${resultLabel(criterion)} | ${escapeInline(criterion.description)} |`,
-    ),
-  ];
+/** The number, icon and word together, so the result reads anywhere the emoji does not render. */
+function criterionTitle(criterion: CriterionResult, criterionNumber: number): string {
+  const result = criterion.result === "pass" ? "✅ Pass" : "❌ Fail";
+  return `${criterionNumber}. ${result}: ${escapeInline(criterion.description)}`;
 }
 
 function renderProof(criterion: CriterionResult, screenshotUrls: Map<string, string>): string[] {
   const note = criterion.note ? ["", escapeInline(criterion.note)] : [];
-  const images =
+  const screenshots =
     criterion.screenshots.length === 0
-      ? ["", "No screenshots"]
-      : criterion.screenshots.flatMap((fileName) => [
-          "",
-          image(fileName, screenshotUrls.get(fileName)!),
-        ]);
-  return [...note, ...images];
+      ? "No screenshots"
+      : thumbnailRow(criterion.screenshots, screenshotUrls);
+  return [...note, "", screenshots];
 }
 
 /** Failures are expanded so the proof to act on is visible; passes stay one click away. */
 function renderCriterionSection(
   criterion: CriterionResult,
+  criterionNumber: number,
   screenshotUrls: Map<string, string>,
 ): string[] {
-  const title = `${resultLabel(criterion)}: ${escapeInline(criterion.description)}`;
+  const title = criterionTitle(criterion, criterionNumber);
   const proof = renderProof(criterion, screenshotUrls);
   return criterion.result === "fail"
-    ? ["", `### ${title}`, ...proof]
-    : ["", "<details>", `<summary>${title}</summary>`, ...proof, "", "</details>"];
+    ? [`### ${title}`, ...proof]
+    : ["<details>", `<summary>${title}</summary>`, ...proof, "", "</details>"];
 }
 
 /** Screenshots no criterion cites, such as setup steps, kept out of the way. */
@@ -111,14 +124,13 @@ function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInpu
     return [];
   }
   return [
-    "",
     "<details>",
     `<summary>Other screenshots (${others.length})</summary>`,
     ...others.flatMap((fileName) => [
       "",
       `**${escapeInline(fileName)}**`,
       "",
-      image(fileName, screenshotUrls.get(fileName)!),
+      thumbnail(fileName, screenshotUrls.get(fileName)!),
     ]),
     "",
     "</details>",
@@ -127,24 +139,27 @@ function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInpu
 
 /** A small plug so reviewers who like the comment can find the tool. */
 function renderFooter(): string[] {
-  return [
-    "",
-    "---",
-    "",
-    `<sub>Want to try it yourself? Check out [pr-evidence on npm](${npmPackageUrl}).</sub>`,
-  ];
+  return [`<sub>Want to try it yourself? Check out [pr-evidence on npm](${npmPackageUrl}).</sub>`];
+}
+
+/**
+ * Puts a rule between sections, so many criteria never blur together, and leaves out empty ones.
+ * The blank line before each rule stops it turning the line above into a heading.
+ */
+function joinWithRules(sections: string[][]): string[] {
+  return sections
+    .filter((section) => section.length > 0)
+    .flatMap((section, index) => [...(index === 0 ? [] : ["", "---"]), "", ...section]);
 }
 
 export function renderEvidenceComment(input: EvidenceCommentInput): string {
+  const criterionSections = input.outcome.criteria.map((criterion, index) =>
+    renderCriterionSection(criterion, index + 1, input.screenshotUrls),
+  );
   return [
     commentMarker,
     ...renderSummary(input),
-    ...renderTable(input.outcome),
-    ...input.outcome.criteria.flatMap((criterion) =>
-      renderCriterionSection(criterion, input.screenshotUrls),
-    ),
-    ...renderOtherScreenshots(input),
-    ...renderFooter(),
+    ...joinWithRules([...criterionSections, renderOtherScreenshots(input), renderFooter()]),
     "",
   ].join("\n");
 }

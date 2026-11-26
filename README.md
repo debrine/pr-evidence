@@ -2,7 +2,7 @@
 
 Your coding agent tests a branch in a real browser and posts each criterion it checked, with the screenshots that prove it, on its pull request.
 
-[![The evidence comment pr-evidence posted on a demo pull request: a passing result, a table of criteria and a section of screenshots for each criterion](https://github.com/debrine/pr-evidence/raw/main/docs/images/evidence-comment.png)](https://github.com/debrine/pr-evidence-demo/pull/1)
+[![The evidence comment pr-evidence posted on a demo pull request: a passing result with a count of passed and failed criteria, then each criterion numbered and marked Pass, the first one open to show its note and screenshot thumbnails side by side](https://github.com/debrine/pr-evidence/raw/main/docs/images/evidence-comment.png)](https://github.com/debrine/pr-evidence-demo/pull/1)
 
 This comment was posted from a real run on [a demo pull request](https://github.com/debrine/pr-evidence-demo/pull/1) that fixes a double-clicked Save adding a note twice.
 
@@ -15,7 +15,7 @@ This comment was posted from a real run on [a demo pull request](https://github.
 
 <!-- TRANSCRIPT: replace with 10-15 lines trimmed from the showcase run -->
 
-Each criterion gets its own section, with its note and screenshots. Passed criteria are collapsed. If a criterion fails, the comment says "Failed", marks that row "Fail" and shows that criterion's section open. The tool only reports. It never changes the code under test.
+Each criterion gets its own numbered section, with its note and screenshot thumbnails. Passed criteria are collapsed. If a criterion fails, the comment says "Failed", marks that criterion "❌ Fail" and shows its section open. The tool only reports. It never changes the code under test.
 
 ## Quickstart
 
