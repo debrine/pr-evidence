@@ -343,8 +343,9 @@ describe("publish", () => {
     await runCli(["publish"], context);
 
     const { body } = github.comments[0]!;
-    expect(body).toContain("<summary>1. ✅ Pass: a \\| b c &lt;img src=x&gt;</summary>");
-    expect(body).toContain("x \\| y &lt;script&gt;");
+    // GitHub shows a backslash escape literally inside <summary>, so a pipe stays as typed.
+    expect(body).toContain("<summary>1. ✅ Pass: a | b c &lt;img src=x&gt;</summary>");
+    expect(body).toContain("x | y &lt;script&gt;");
     expect(body).toMatch(/<img src="https:[^"]+" height="240" alt="a&quot;b&lt;c&gt;&amp;d\.png">/);
     expect(body).toMatch(/\*\*002-uncited &lt;b&gt;\.png\*\*\n\n<img src="https:[^"]+" height="240" alt="002-uncited &lt;b&gt;\.png">/);
     expect(body).not.toContain("<img src=x>");

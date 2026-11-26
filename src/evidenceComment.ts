@@ -21,23 +21,22 @@ export interface EvidenceCommentInput {
   headDiffers: boolean;
 }
 
-/** Makes untrusted text safe for one line of Markdown, such as a heading or a `<summary>`. */
+/** Stops untrusted text being read as HTML. `&` goes first so the other entities stay intact. */
+function escapeHtml(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/**
+ * Makes untrusted text safe for one line of Markdown, such as a heading or a `<summary>`. It uses
+ * no backslash escapes, because GitHub shows those literally inside `<summary>`.
+ */
 function escapeInline(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("|", "\\|")
-    .replace(/\s*\n\s*/g, " ");
+  return escapeHtml(text).replace(/\s*\n\s*/g, " ");
 }
 
 /** Makes untrusted text safe inside a double-quoted HTML attribute. */
 function escapeAttribute(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  return escapeHtml(text).replaceAll('"', "&quot;");
 }
 
 /** Encodes a branch name as one URL path segment that is also safe in a Markdown link destination. */
@@ -90,9 +89,9 @@ function renderSummary(input: EvidenceCommentInput): string[] {
 }
 
 /** The number, icon and word together, so the result reads anywhere the emoji does not render. */
-function criterionTitle(criterion: CriterionResult, number: number): string {
+function criterionTitle(criterion: CriterionResult, criterionNumber: number): string {
   const result = criterion.result === "pass" ? "✅ Pass" : "❌ Fail";
-  return `${number}. ${result}: ${escapeInline(criterion.description)}`;
+  return `${criterionNumber}. ${result}: ${escapeInline(criterion.description)}`;
 }
 
 function renderProof(criterion: CriterionResult, screenshotUrls: Map<string, string>): string[] {
@@ -107,10 +106,10 @@ function renderProof(criterion: CriterionResult, screenshotUrls: Map<string, str
 /** Failures are expanded so the proof to act on is visible; passes stay one click away. */
 function renderCriterionSection(
   criterion: CriterionResult,
-  number: number,
+  criterionNumber: number,
   screenshotUrls: Map<string, string>,
 ): string[] {
-  const title = criterionTitle(criterion, number);
+  const title = criterionTitle(criterion, criterionNumber);
   const proof = renderProof(criterion, screenshotUrls);
   return criterion.result === "fail"
     ? [`### ${title}`, ...proof]
@@ -118,11 +117,11 @@ function renderCriterionSection(
 }
 
 /** Screenshots no criterion cites, such as setup steps, kept out of the way. */
-function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInput): string[] | null {
+function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInput): string[] {
   const cited = new Set(outcome.criteria.flatMap((criterion) => criterion.screenshots));
   const others = outcome.screenshots.filter((fileName) => !cited.has(fileName));
   if (others.length === 0) {
-    return null;
+    return [];
   }
   return [
     "<details>",
@@ -140,38 +139,27 @@ function renderOtherScreenshots({ outcome, screenshotUrls }: EvidenceCommentInpu
 
 /** A small plug so reviewers who like the comment can find the tool. */
 function renderFooter(): string[] {
-  return [
-    "",
-    "---",
-    "",
-    `<sub>Want to try it yourself? Check out [pr-evidence on npm](${npmPackageUrl}).</sub>`,
-  ];
+  return [`<sub>Want to try it yourself? Check out [pr-evidence on npm](${npmPackageUrl}).</sub>`];
 }
 
 /**
- * Puts a rule between sections, so many criteria never blur together. The blank line before each
- * rule stops it turning the line above into a heading.
+ * Puts a rule between sections, so many criteria never blur together, and leaves out empty ones.
+ * The blank line before each rule stops it turning the line above into a heading.
  */
 function joinWithRules(sections: string[][]): string[] {
-  return sections.flatMap((section, index) => [
-    ...(index === 0 ? [] : ["", "---"]),
-    "",
-    ...section,
-  ]);
+  return sections
+    .filter((section) => section.length > 0)
+    .flatMap((section, index) => [...(index === 0 ? [] : ["", "---"]), "", ...section]);
 }
 
 export function renderEvidenceComment(input: EvidenceCommentInput): string {
   const criterionSections = input.outcome.criteria.map((criterion, index) =>
     renderCriterionSection(criterion, index + 1, input.screenshotUrls),
   );
-  const otherScreenshots = renderOtherScreenshots(input);
-  const sections =
-    otherScreenshots === null ? criterionSections : [...criterionSections, otherScreenshots];
   return [
     commentMarker,
     ...renderSummary(input),
-    ...joinWithRules(sections),
-    ...renderFooter(),
+    ...joinWithRules([...criterionSections, renderOtherScreenshots(input), renderFooter()]),
     "",
   ].join("\n");
 }
