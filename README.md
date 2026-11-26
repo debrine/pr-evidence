@@ -15,7 +15,7 @@ This comment was posted from a real run on [a demo pull request](https://github.
 
 <!-- TRANSCRIPT: replace with 10-15 lines trimmed from the showcase run -->
 
-Each criterion gets its own section, with its note and screenshots. Passed criteria are collapsed. If a criterion fails, the comment says "Failed", marks that row "Fail" and shows that criterion's section open. The tool only reports. It never changes the code under test.
+Each criterion gets its own numbered section, with its note and screenshot thumbnails. Passed criteria are collapsed. If a criterion fails, the comment says "Failed", marks that criterion "❌ Fail" and shows its section open. The tool only reports. It never changes the code under test.
 
 ## Quickstart
 

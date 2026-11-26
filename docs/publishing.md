@@ -16,11 +16,12 @@ What to check before you publish, what the comment shows, where evidence is kept
 
 ## What the comment shows
 
-1. The result, the tested commit, the ticket and a link comparing the commit with the branch, plus a warning if the run had uncommitted changes or the PR head differs from the tested commit.
-2. A table with the result of each criterion.
-3. A section for each criterion, in the approved order, with its note and the screenshots it cites, in the order listed. A criterion that cites none says "No screenshots". Failed criteria are open. Passed criteria are collapsed.
-4. "Other screenshots", collapsed, holding the screenshots no criterion cites, such as setup steps. It is left out when every screenshot is cited.
-5. A small footer linking to [pr-evidence on npm](https://www.npmjs.com/package/pr-evidence), so a reviewer can try the tool.
+1. The result, the tested commit, the ticket, how many criteria passed and failed, and a link comparing the commit with the branch, plus a warning if the run had uncommitted changes or the PR head differs from the tested commit.
+2. A section for each criterion, in the approved order, with a rule between each one and the next. Its title gives the criterion's number, ✅ Pass or ❌ Fail, and its description. Below the title are its note and the screenshots it cites, in the order listed. A criterion that cites none says "No screenshots". Failed criteria are open. Passed criteria are collapsed.
+3. "Other screenshots", collapsed, holding the screenshots no criterion cites, such as setup steps, each labelled with its file name. It is left out when every screenshot is cited.
+4. A small footer linking to [pr-evidence on npm](https://www.npmjs.com/package/pr-evidence), so a reviewer can try the tool.
+
+Screenshots show as thumbnails 240 pixels tall, keeping their shape, side by side and wrapping to the width of the comment. Click one to open it full size.
 
 Publishing again replaces the comment.
 
